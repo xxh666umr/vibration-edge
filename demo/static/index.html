@@ -48,6 +48,8 @@
   .muted{color:var(--dim)}
   .ok{color:var(--green)} .bad{color:var(--red)} .amber{color:var(--amber)}
   footer{margin-top:14px;color:#4c5a73;font-size:11.5px}
+  .toplink{color:#93c5fd;text-decoration:none;font-size:12px;border:1px solid var(--line);padding:6px 10px;border-radius:8px;background:var(--card)}
+  .warnchip{display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;font-size:12px;background:#3a2a12;color:var(--amber);border:1px solid #7c5a1a}
   @media(max-width:960px){.grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -58,6 +60,7 @@
     <div class="sub">STM32F103ZET6 · ADC 10.24 kHz × 1024 点 · RMS 门限 + int8 3 类 CNN · 结果回传 PC</div>
   </div>
   <div class="badge"><span class="dot" id="dot"></span><span id="conn">连接中…</span></div>
+  <a class="toplink" href="/static/about.html" target="_blank">口径说明</a>
 </header>
 
 <div class="grid">
@@ -78,6 +81,9 @@
     </div>
     <div class="row">
       <span class="muted">一致性</span><b id="match">—</b>
+    </div>
+    <div class="row">
+      <span class="muted">阶段状态</span><b id="stage-warn">—</b>
     </div>
   </div>
 
@@ -188,6 +194,21 @@ function render(s){
     return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
       <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
   }).join("");
+  // 过渡预警：top1 与 top2 概率接近 → 处于相邻阶段过渡区
+  let warn = "—";
+  if (!probs.length || (f.replay && f.replay.decision === "idling" && !(f.adc && f.adc.decision === "wear"))) {
+    warn = "空闲（无需判断阶段）";
+  } else {
+    const arr = probs.slice().map(Number).sort((a,b)=>b-a);
+    if (arr.length >= 2) {
+      const margin = arr[0] - arr[1];
+      warn = margin < 0.15 ? ("过渡区 / 不确定（margin=" + margin.toFixed(3) + "）") : ("明确（margin=" + margin.toFixed(3) + "）");
+    }
+  }
+  const we0 = document.getElementById("stage-warn");
+  we0.textContent = warn;
+  we0.className = warn.indexOf("过渡") >= 0 ? "amber" : (warn.indexOf("明确") >= 0 ? "ok" : "");
+
   const idle = rp.decision === "idling";
   setText("idle-pct", idle ? "判定为空闲" : "未触发");
   document.getElementById("idle-fill").style.width = idle ? "100%" : "0%";

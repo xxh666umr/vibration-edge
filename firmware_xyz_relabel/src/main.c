@@ -221,6 +221,18 @@ static void process_window(const int16_t adc[N_AXES][WIN_LEN], const char *tag) 
     for (int i = 0; i < (int)MODEL_NUM_CLASSES; ++i) {
         printf("    class %d (%s): %.4f\r\n", i, class_name(i), (double)g_probs[i]);
     }
+    {
+        float top1 = -1.0f, top2 = -1.0f;
+        for (int i = 0; i < (int)MODEL_NUM_CLASSES; ++i) {
+            if (g_probs[i] > top1) { top2 = top1; top1 = g_probs[i]; }
+            else if (g_probs[i] > top2) { top2 = g_probs[i]; }
+        }
+        const float margin = top1 - top2;
+        if (margin < 0.15f) {
+            printf("[warn ] transition/uncertain: margin=%.3f (<0.15)，处于相邻阶段过渡区\r\n",
+                   (double)margin);
+        }
+    }
 }
 
 int main(void) {

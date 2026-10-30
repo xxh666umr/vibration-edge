@@ -232,6 +232,19 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/state"):
             body = json.dumps(STATE.snapshot(), ensure_ascii=False).encode("utf-8")
             self._send(200, body, "application/json; charset=utf-8")
+        elif self.path.startswith("/static/"):
+            rel = os.path.basename(self.path[len("/static/"):].split("?")[0])
+            p = os.path.join(ROOT, "demo", "static", rel)
+            if os.path.isfile(p):
+                ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+                ctype = {"html": "text/html; charset=utf-8",
+                         "png": "image/png",
+                         "css": "text/css; charset=utf-8",
+                         "js": "application/javascript; charset=utf-8"}.get(ext, "application/octet-stream")
+                with open(p, "rb") as f:
+                    self._send(200, f.read(), ctype)
+            else:
+                self._send(404, b"not found", "text/plain")
         else:
             self._send(404, b"not found", "text/plain")
 

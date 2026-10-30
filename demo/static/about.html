@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>口径说明 · 工业振动识别</title>
+<style>
+  :root{
+    --bg:#0b1220; --card:#111a2e; --line:#1e2a44; --text:#e2e8f0;
+    --dim:#8fa3bf; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 20% -10%,#13233f 0,var(--bg) 60%);
+    color:var(--text);font:14px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
+  h1 span{color:var(--cyan)}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+  h2{font-size:16px;margin:0 0 10px;color:var(--cyan)}
+  p{margin:6px 0}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+  th{color:var(--dim);font-weight:500;text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+  td{padding:6px;border-bottom:1px solid #14213a}
+  .ok{color:var(--green)} .amber{color:var(--amber)} .dim{color:var(--dim)}
+  code{background:#0b1526;border:1px solid var(--line);padding:1px 5px;border-radius:5px;font-size:12px}
+  a{color:#93c5fd;text-decoration:none}
+  .back{display:inline-block;margin-bottom:14px;color:#93c5fd;font-size:13px}
+  .note{border-left:3px solid var(--amber);background:#2a2210;padding:10px 14px;border-radius:8px;color:#fde68a;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← 返回实时看板</a>
+  <h1>工业振动识别 <span>· 口径说明</span></h1>
+  <div class="sub">STM32F103ZET6 · 三轴/单轴 int8 CNN · SDU-QIT 刀具磨损数据 · 本页解释看板上的数字和“修正标签”是什么</div>
+
+  <div class="card">
+    <h2>1. 系统链路</h2>
+    <p>传感器（目前为板内 DAC 回放）→ ADC 10.24 kHz × 1024 点（100 ms/窗）→ AC-RMS 能量门限判“空闲”→ 逐窗 RMS 归一化 → int8 3 类 CNN（初期/稳定/加速）→ 串口回传 → 本看板。</p>
+    <p class="dim">单轴固件：采集 100.0 ms + 推理 17.07 ms = 117.1 ms/窗。三轴同步固件：100.1 + 31.39 = 131.5 ms/窗。三轴 DAC 分时回放固件：300 + 31.42 = 331.4 ms/窗。</p>
+  </div>
+
+  <div class="card">
+    <h2>2. 三类磨损 + 空闲（为什么不是端到端 4 类）</h2>
+    <p>四类信号幅度差约 27 倍，单尺度 int8 会把空闲量化到 ±1 LSB，端到端量化后准确率从 95.9% 掉到 62.2%。所以拆成“RMS 门限判空闲（几乎零成本）+ 3 类磨损 CNN（逐窗归一化）”，量化掉点 &lt; 0.1 pt。</p>
+  </div>
+
+  <div class="card">
+    <h2>3. 三个口径（看板/材料里的数字从这里来）</h2>
+    <table>
+      <thead><tr><th>口径</th><th>怎么做</th><th>单轴</th><th>三轴</th></tr></thead>
+      <tbody>
+        <tr><td>随机划分（论文可比）</td><td>70/20/10 随机切窗口，与 ICCC 2024 同口径</td><td>96.74%</td><td>99.00%</td></tr>
+        <tr><td>严格时间划分（原始标签）</td><td>每个类文件前 70% 训练、最后 10% 测试</td><td>42.8%</td><td>45.5%</td></tr>
+        <tr><td>严格时间划分（信号重标）</td><td>用训练段核心窗口重定义阶段标签后再评测</td><td>89.4%</td><td>95.99%</td></tr>
+        <tr><td>参考：TWM-Net（PC 对照）</td><td>2,162 万参数，论文口径/时间口径</td><td>98.31% / 36.66%</td><td>—</td></tr>
+      </tbody>
+    </table>
+    <p class="dim">信号重标标签下随机口径为 92.42%（三轴）——重标把边界窗口按信号划到相邻阶段，任务更难，不是“放水”。</p>
+  </div>
+
+  <div class="card">
+    <h2>4. 为什么“严格时间划分 + 原始标签”这么低</h2>
+    <p>原始 4 类是按“阶段文件”整段打的标签，但每个阶段文件的<b>末段</b>信号已经进入下一阶段（例如 steady 末段 RMS 0.045 已超过 accelerating 平均 0.040）。严格切分时测试集恰好全是每个文件的尾巴，标签写“稳定”、信号却是“加速”，模型按信号判成加速就算错。</p>
+    <p>证据：逐 10% 段测试只有最后 10% 崩（steady 14.7%、initial 55%，accelerating 100%）；严格口径错误 <b>100% 是相邻阶段</b>（跨档错误 0）；重标标签与原始标签一致率 76.1%。</p>
+  </div>
+
+  <div class="card">
+    <h2>5. 板端与固件版本</h2>
+    <table>
+      <thead><tr><th>固件</th><th>用途</th><th>时延</th></tr></thead>
+      <tbody>
+        <tr><td><code>firmware/</code></td><td>单轴在线 ADC（PA4→PA0 回放）</td><td>117.1 ms/窗</td></tr>
+        <tr><td><code>firmware_xyz/</code></td><td>三轴 DAC 分时回放（演示）</td><td>331.4 ms/窗</td></tr>
+        <tr><td><code>firmware_xyz_relabel/</code></td><td>三轴·修正标签版回放（当前板端）</td><td>331.4 ms/窗</td></tr>
+        <tr><td><code>firmware_xyz_sync/</code></td><td>三轴同步采集（PA0/PA1/PA2，接真实传感器用）</td><td>131.5 ms/窗</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>6. 数据与代码</h2>
+    <p>数据：SDU-QIT 刀具磨损数据集（山东大学 × 齐鲁理工学院，<a href="https://www.qlit.edu.cn/datasets/" target="_blank">数据集主页</a>），数据不随代码分发。</p>
+    <p>代码：<a href="https://github.com/xxh666umr/vibration-edge" target="_blank">github.com/xxh666umr/vibration-edge</a>（振动）· <a href="https://github.com/xxh666umr/edge-inference" target="_blank">edge-inference</a>（调制识别/通用 int8 推理）。</p>
+  </div>
+
+  <div class="note">
+    注意：当前板端是 DAC 回放演示，没有接真实振动传感器；“修正标签”是信号特征推导的阶段标签，尚未与真实 VB 磨损值核对；拿到原始 VB 数据后会复核。
+  </div>
+</div>
+</body>
+</html>
