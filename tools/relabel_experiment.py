@@ -25,7 +25,8 @@ import torch.nn as nn
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from train_vib import VibNet, augment  # noqa: E402
 from train_vib3 import load_xyz, norm3  # noqa: E402
-from transition_experiment import features_1ch, features_3ch, load_x, stage_split  # noqa: E402
+from transition_experiment import features_1ch, features_3ch, load_x, stage_split
+from train_vib import split_random  # noqa: E402
 
 WEAR = ["initial_wear", "steady_wear", "accelerating_wear"]
 TRANS = "transition"
@@ -40,7 +41,19 @@ def predict(model, X, dev, batch=512):
     return np.concatenate(out)
 
 
-def relabel(y, feats, band, core_frac=0.6, use_transition=True):
+def _kmeans(Z, k, iters=25, seed=0):
+    rng = np.random.default_rng(seed)
+    c = Z[rng.choice(len(Z), min(k, len(Z)), replace=False)].copy()
+    for _ in range(iters):
+        d = ((Z[:, None, :] - c[None, :, :]) ** 2).sum(2)
+        lab = d.argmin(1)
+        for j in range(len(c)):
+            if (lab == j).any():
+                c[j] = Z[lab == j].mean(0)
+    return c
+
+
+def relabel(y, feats, band, core_frac=0.6, use_transition=True, clusters=0):
     """返回 (标签, 过渡数量, 质量指标)。标签：0/1/2 磨损阶段，3 过渡，-1 空闲。"""
     core = np.zeros(len(y), bool)
     for c in (1, 2, 3):
@@ -48,8 +61,40 @@ def relabel(y, feats, band, core_frac=0.6, use_transition=True):
         core[idx[:int(core_frac * len(idx))]] = True
     mu, sd = feats[core].mean(0), feats[core].std(0) + 1e-9
     Z = (feats - mu) / sd
-    cent = np.stack([Z[core & (y == c)].mean(0) for c in (1, 2, 3)])
-    d = ((Z[:, None, :] - cent[None, :, :]) ** 2).sum(2)  # (N,3)
+    if clusters and clusters > 1:
+        cents, owner = [], []
+        for c in (1, 2, 3):
+            ccs = _kmeans(Z[core & (y == c)], clusters)
+            cents.append(ccs); owner.extend([c - 1] * len(ccs))
+        cent = np.concatenate(cents, 0)
+        owner = np.asarray(owner)
+        dd = ((Z[:, None, :] - cent[None, :, :]) ** 2).sum(2)
+        # 把“最近聚类中心”映射回阶段：对每个阶段取最近的簇，再在三个阶段中取最近
+        near = np.zeros(len(Z), np.int64)
+        for i in range(len(Z)):
+            best = None
+            for c in (1, 2, 3):
+                sel = np.where(owner == c - 1)[0]
+                dc = dd[i, sel].min()
+                if best is None or dc < best[0]:
+                    best = (dc, c - 1)
+            near[i] = best[1]
+        d = np.zeros((len(Z), 3))
+        for c in (1, 2, 3):
+            sel = np.where(owner == c - 1)[0]
+            d[:, c - 1] = dd[:, sel].min(1)
+        order = np.argsort(d, 1)
+    else:
+        cent = np.stack([Z[core & (y == c)].mean(0) for c in (1, 2, 3)])
+        d = ((Z[:, None, :] - cent[None, :, :]) ** 2).sum(2)  # (N,3)
+        order = np.argsort(d, 1)
+    d = ((Z[:, None, :] - cent[None, :, :]) ** 2).sum(2) if not (clusters and clusters > 1) else d
+    if clusters and clusters > 1:
+        d3 = d
+        order = np.argsort(d3, 1)
+    else:
+        d3 = d
+        order = np.argsort(d3, 1)
     order = np.argsort(d, 1)
     near, second = order[:, 0], order[:, 1]
     lab = np.full(len(y), -1, np.int64)
@@ -67,6 +112,33 @@ def relabel(y, feats, band, core_frac=0.6, use_transition=True):
     return lab, n_trans, float(orig)
 
 
+def pava_nondecreasing(v):
+    """保序回归（PAVA）：把序列拟合为非递减，用于“阶段只能顺序推进”的平滑。"""
+    v = np.asarray(v, np.float64)
+    vals, weights = [], []
+    for x in v:
+        vals.append(float(x)); weights.append(1.0)
+        while len(vals) > 1 and vals[-2] > vals[-1]:
+            v2, w2 = vals.pop(), weights.pop()
+            v1, w1 = vals.pop(), weights.pop()
+            vals.append((v1 * w1 + v2 * w2) / (w1 + w2))
+            weights.append(w1 + w2)
+    out = []
+    for val, w in zip(vals, weights):
+        out.extend([val] * int(round(w)))
+    return np.asarray(out, np.float64)
+
+
+def smooth_labels_monotonic(y, near):
+    """按“每个类文件内时间顺序”对最近质心阶段做保序平滑，返回新的阶段序号。"""
+    lab = near.copy()
+    for c in (1, 2, 3):
+        idx = np.where(y == c)[0]
+        sm = pava_nondecreasing(lab[idx].astype(np.float64))
+        lab[idx] = np.clip(np.rint(sm), 0, 2).astype(lab.dtype)
+    return lab
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--axes", default="x", choices=["x", "xyz"])
@@ -76,6 +148,12 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-transition", action="store_true")
+    ap.add_argument("--monotonic", action="store_true", help="按保序回归平滑阶段标签")
+    ap.add_argument("--smooth", type=int, default=0, help="特征滑动平均窗口（0=不平滑）")
+    ap.add_argument("--clusters", type=int, default=0, help="每阶段聚类中心数（0=单质心）")
+    ap.add_argument("--split", default="time", choices=["time", "random"])
+    ap.add_argument("--train-frac", type=float, default=0.8)
+    ap.add_argument("--val-frac", type=float, default=0.1)
     ap.add_argument("--out", default=r"models\relabel")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
@@ -93,8 +171,37 @@ def main():
         feats = features_3ch(X)
         in_c = 3
     rms = np.sqrt((X ** 2).mean(axis=(1, 2)))
-    tr, va, te = stage_split(y)
-    lab, n_trans, agree = relabel(y, feats, args.band, use_transition=not args.no_transition)
+    tr, va, te = split_random(y) if args.split == "random" else stage_split(y, tr_frac=args.train_frac, va_frac=args.val_frac)
+    if args.smooth and args.smooth > 1:
+        fs = feats.copy()
+        for c in range(4):
+            idx = np.where(y == c)[0]
+            k = np.ones(args.smooth, np.float32) / args.smooth
+            for d in range(fs.shape[1]):
+                fs[idx, d] = np.convolve(feats[idx, d], k, mode="same")
+        feats = fs
+        print(f"[smooth] 特征滑动平均窗口={args.smooth}", flush=True)
+    lab, n_trans, agree = relabel(y, feats, args.band, use_transition=not args.no_transition, clusters=args.clusters)
+    if args.monotonic:
+        near = lab.copy()
+        near[lab == 3] = -1
+        # 先用最近质心得到基础阶段，再保序平滑
+        # relabel 内部已返回最终标签；这里重新计算接近原始阶段以平滑
+        core = np.zeros(len(y), bool)
+        for c in (1, 2, 3):
+            idx = np.where(y == c)[0]
+            core[idx[:int(0.6 * len(idx))]] = True
+        mu, sd = feats[core].mean(0), feats[core].std(0) + 1e-9
+        Z = (feats - mu) / sd
+        cent = np.stack([Z[core & (y == c)].mean(0) for c in (1, 2, 3)])
+        d = ((Z[:, None, :] - cent[None, :, :]) ** 2).sum(2)
+        near_all = d.argmin(1)
+        smooth = smooth_labels_monotonic(y, near_all)
+        lab = np.full(len(y), -1, np.int64)
+        wear = y > 0
+        lab[wear] = smooth[wear]
+        n_trans = 0
+        print("[monotonic] 已按保序回归平滑阶段标签", flush=True)
     n_cls = 3 if args.no_transition else 4
     names = WEAR if args.no_transition else WEAR + [TRANS]
     print(f"[labels] 最近质心与原始标签一致率（磨损窗口）={agree:.2f}%，过渡窗口数={n_trans}", flush=True)

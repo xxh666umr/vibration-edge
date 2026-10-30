@@ -47,12 +47,18 @@ def main():
     model.conv1 = nn.Conv1d(3, cfg["c1"], cfg["k1"], cfg["s1"])
     model.load_state_dict(ck["state_dict"]); model.eval()
 
-    X, y = load_xyz()
-    rms = np.sqrt((X ** 2).mean(axis=(1, 2)))
-    tr, va, te = split_random(y)
-    m_tr = np.zeros(len(y), bool); m_tr[tr] = True
-    wtr = np.where(m_tr & (y > 0))[0]
-    q = quantize_vib(model, norm3(X[wtr], rms[wtr])[:1500])
+    calib_path = os.path.join(md, "calib_features.npy")
+    if os.path.exists(calib_path):
+        calib = np.load(calib_path)
+        print(f"[calib] 使用模型目录保存的校准特征 {calib.shape}", flush=True)
+        q = quantize_vib(model, calib)
+    else:
+        X, y = load_xyz()
+        rms = np.sqrt((X ** 2).mean(axis=(1, 2)))
+        tr, va, te = split_random(y)
+        m_tr = np.zeros(len(y), bool); m_tr[tr] = True
+        wtr = np.where(m_tr & (y > 0))[0]
+        q = quantize_vib(model, norm3(X[wtr], rms[wtr])[:1500])
     q["classes"] = ck["class_names"]
 
     data = np.load(os.path.join(md, "parity_vib.npz"))

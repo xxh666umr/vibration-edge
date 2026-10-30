@@ -1,6 +1,8 @@
 # build artifacts
 firmware/build/
 firmware_xyz/build/
+firmware_xyz_relabel/build/
+firmware_xyz/build/
 *.obj
 *.exe
 __pycache__/

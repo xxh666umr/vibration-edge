@@ -1,0 +1,19 @@
+{
+  "wear_float": 95.39706626201315,
+  "wear_int8": 95.39706626201315,
+  "idle_gate": 100.0,
+  "overall5_int8": 95.96720584976734,
+  "original_label_acc": 23.596358118361152,
+  "gate_threshold": 0.019962075166404247,
+  "param_count": 10483,
+  "weight_bytes": 10384,
+  "bias_bytes": 396,
+  "axes": "xyz",
+  "classes": [
+    "initial_wear",
+    "steady_wear",
+    "accelerating_wear"
+  ],
+  "split": "前90%训练/后10%测试（信号重标标签）",
+  "relabel_agree": 76.12957903258449
+}
