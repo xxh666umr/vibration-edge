@@ -1,0 +1,112 @@
+{
+  "model": "VibNet",
+  "axes": "x",
+  "split": "random",
+  "params": 8484,
+  "macs": 60928,
+  "config": {
+    "c1": 16,
+    "c2": 32,
+    "c3": 48,
+    "k1": 64,
+    "s1": 32
+  },
+  "class_weight": false,
+  "epochs": 80,
+  "best_val_acc": 98.73545776428932,
+  "test": {
+    "accuracy": 98.28373484490632,
+    "precision": 49.71213463241807,
+    "recall": 49.47946513849093,
+    "f1_macro": 49.592228351607204,
+    "per_class_f1": {
+      "idling": 99.42093541202672,
+      "initial_wear": 98.94797799440208,
+      "steady_wear": 0.0,
+      "accelerating_wear": 0.0
+    },
+    "per_class_recall": {
+      "idling": 100.0,
+      "initial_wear": 97.9178605539637,
+      "steady_wear": 0.0,
+      "accelerating_wear": 0.0
+    },
+    "confusion": [
+      [
+        1116,
+        0,
+        0,
+        0
+      ],
+      [
+        13,
+        5126,
+        92,
+        4
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ]
+  },
+  "val": {
+    "accuracy": 98.73545776428932,
+    "precision": 74.89430611576098,
+    "recall": 73.06420419946322,
+    "f1_macro": 73.95608963737301,
+    "per_class_f1": {
+      "idling": 99.86583184257603,
+      "initial_wear": 98.88846301264851,
+      "steady_wear": 0.0,
+      "accelerating_wear": 97.07006369426752
+    },
+    "per_class_recall": {
+      "idling": 100.0,
+      "initial_wear": 97.9498861047836,
+      "steady_wear": 0.0,
+      "accelerating_wear": 94.3069306930693
+    },
+    "confusion": [
+      [
+        2233,
+        0,
+        0,
+        0
+      ],
+      [
+        6,
+        1290,
+        21,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        2,
+        21,
+        381
+      ]
+    ]
+  },
+  "data_per_class_test": [
+    1116,
+    5235,
+    0,
+    0
+  ],
+  "time_seconds": 24.830797910690308
+}

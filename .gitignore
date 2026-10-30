@@ -1,0 +1,16 @@
+# build artifacts
+firmware/build/
+firmware_xyz/build/
+*.obj
+*.exe
+__pycache__/
+*.pyc
+
+# local env / data（数据不随仓库分发）
+.deps/
+data/*.npy
+data/*.parquet
+
+# 编辑器
+.vscode/
+.idea/

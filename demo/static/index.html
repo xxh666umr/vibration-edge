@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工业振动识别实时看板 · 刀具磨损 4 分类</title>
+<style>
+  :root{--bg:#070c17;--card:#0f172a;--card2:#131f36;--line:#1e2d4a;--txt:#e2e8f0;--dim:#7c8aa5;
+        --cyan:#22d3ee;--green:#34d399;--amber:#fbbf24;--red:#f87171;--violet:#a78bfa}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1200px 600px at 20% 0%,#0d1b33 0%,var(--bg) 60%);color:var(--txt);
+       font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;padding:18px 22px 30px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  h1{font-size:21px;font-weight:700;letter-spacing:.5px}
+  h1 span{color:var(--cyan)}
+  .sub{color:var(--dim);font-size:12px;margin-top:4px}
+  .badge{display:inline-flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);
+         border-radius:20px;padding:7px 14px;font-size:12.5px;color:var(--dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red)}
+  .dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .grid{display:grid;grid-template-columns:1.15fr 1fr;gap:14px}
+  .card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
+        border-radius:14px;padding:16px 18px}
+  .label{color:var(--dim);font-size:12px;letter-spacing:.4px;margin-bottom:8px}
+  .big{font-size:44px;font-weight:800;line-height:1;color:var(--cyan)}
+  .big.small{font-size:34px}
+  .row{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:13px}
+  .row b{font-size:15px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11.5px;border:1px solid var(--line);color:var(--dim)}
+  .pill.ok{color:var(--green);border-color:#1f6f52}
+  .pill.warn{color:var(--amber);border-color:#6b5518}
+  .bars{margin-top:6px}
+  .bar{margin:9px 0}
+  .bar .top{display:flex;justify-content:space-between;font-size:12.5px;color:var(--dim);margin-bottom:4px}
+  .bar .track{height:9px;background:#0a1222;border-radius:6px;overflow:hidden;border:1px solid #15223a}
+  .bar .fill{height:100%;width:0;background:linear-gradient(90deg,#0891b2,var(--cyan));border-radius:6px;transition:width .25s}
+  .bar.idle .fill{background:linear-gradient(90deg,#166534,var(--green))}
+  .lat{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px}
+  .lat .box{background:#0b1424;border:1px solid #16233c;border-radius:10px;padding:10px 12px;text-align:center}
+  .lat .box .v{font-size:22px;font-weight:700}
+  .lat .box .k{font-size:11.5px;color:var(--dim);margin-top:3px}
+  .spark{display:flex;align-items:flex-end;gap:3px;height:64px;margin-top:12px}
+  .spark div{flex:1;background:linear-gradient(180deg,var(--cyan),#0e7490);border-radius:3px 3px 0 0;min-height:2px;opacity:.9}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  th{color:var(--dim);font-weight:500;text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+  td{padding:6px;border-bottom:1px solid #14213a;color:#cbd5e1}
+  td.mono{font-variant-numeric:tabular-nums}
+  .muted{color:var(--dim)}
+  .ok{color:var(--green)} .bad{color:var(--red)} .amber{color:var(--amber)}
+  footer{margin-top:14px;color:#4c5a73;font-size:11.5px}
+  @media(max-width:960px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>工业振动识别 <span>实时看板</span></h1>
+    <div class="sub">STM32F103ZET6 · ADC 10.24 kHz × 1024 点 · RMS 门限 + int8 3 类 CNN · 结果回传 PC</div>
+  </div>
+  <div class="badge"><span class="dot" id="dot"></span><span id="conn">连接中…</span></div>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <div class="label">当前判定（板上推理结果）</div>
+    <div class="big" id="verdict">—</div>
+    <div class="row">
+      <span class="muted">来源</span><b id="src">—</b>
+    </div>
+    <div class="row">
+      <span class="muted">置信度</span><b id="conf">—</b>
+    </div>
+    <div class="row">
+      <span class="muted">回放样本类别</span><b id="replay-cls">—</b>
+    </div>
+    <div class="row">
+      <span class="muted">ADC 通道判定</span><b id="adc-verdict">—</b>
+    </div>
+    <div class="row">
+      <span class="muted">一致性</span><b id="match">—</b>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">时延（板上 DWT 实测）</div>
+    <div class="lat">
+      <div class="box"><div class="v" id="acq">—</div><div class="k">采集 ms</div></div>
+      <div class="box"><div class="v" id="inf">—</div><div class="k">推理 ms</div></div>
+      <div class="box"><div class="v" id="tot">—</div><div class="k">总计 ms/窗</div></div>
+    </div>
+    <div class="spark" id="spark"></div>
+    <div class="row"><span class="muted">最近 30 窗总时延</span><span id="sminmax" class="muted">—</span></div>
+  </div>
+
+  <div class="card">
+    <div class="label">磨损类别概率（CNN int8 输出）<span id="probs-note" style="color:#64748b;font-weight:400"></span></div>
+    <div class="bars" id="probs"></div>
+    <div class="bar idle"><div class="top"><span>idling（空闲，RMS 门限）</span><span id="idle-pct">—</span></div>
+      <div class="track"><div class="fill" id="idle-fill" style="width:0%"></div></div></div>
+    <div class="row"><span class="muted">门限阈值</span><span>AC-RMS &lt; 0.006（数据单位）</span></div>
+  </div>
+
+  <div class="card">
+    <div class="label">板端信息</div>
+    <div class="row"><span class="muted">串口</span><b id="port">—</b></div>
+    <div class="row"><span class="muted">链路状态</span><b id="source">—</b></div>
+    <div class="row"><span class="muted">已收窗口</span><b id="frames">0</b></div>
+    <div class="row"><span class="muted">ADC 超时采样</span><b id="timeouts">—</b></div>
+    <div class="row"><span class="muted">更新时间</span><b id="time">—</b></div>
+    <div class="row"><span class="muted">模型</span><span>vib_cnn_gate3 · 单轴 8,435 / 三轴 10,483 参数 · int8</span></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="label">最近识别记录</div>
+  <table>
+    <thead><tr><th>时间</th><th>回放样本</th><th>ADC 判定</th><th>CNN 预测</th><th>置信度</th><th>采集 ms</th><th>推理 ms</th><th>总计 ms</th></tr></thead>
+    <tbody id="hist"><tr><td colspan="8" class="muted">等待数据…</td></tr></tbody>
+  </table>
+</div>
+
+<footer>数据链路：STM32F103ZET6（ADC 10.24 kHz → RMS 门限 → 归一化 int8 → 3 类 CNN）→ USART1/CH340 → demo/server.py → HTTP → 本页。无接线时 ADC 判空闲，内置回放样本演示 4 类识别。</footer>
+
+<script>
+const CN = {idling:"空闲", initial_wear:"初期磨损", steady_wear:"稳定磨损", accelerating_wear:"加速磨损"};
+const CLASSES = ["initial_wear","steady_wear","accelerating_wear"];
+let hist = [];
+
+function setText(id, v){ const e = document.getElementById(id); if(e) e.textContent = v; }
+
+function verdictOf(frame){
+  if(!frame) return {name:"—", conf:null, src:"—"};
+  const rp = frame.replay || {};
+  const ad = frame.adc || {};
+  // 优先展示 ADC 通道（真实链路）；ADC 无信号时展示回放
+  const useAdc = ad.decision === "wear" || (ad.decision === "idling" && ad.rms_units > 0.0005);
+  const d = useAdc ? ad : rp;
+  const src = useAdc ? "ADC 通道" : "内置回放（ADC 无信号）";
+  if(!d || !d.decision) return {name:"—", conf:null, src};
+  if(d.decision === "idling") return {name:"idling · 空闲", conf:null, src};
+  const p = d.pred;
+  return {name:(d.pred_name || "?") + " · " + (CN[d.pred_name]||""), conf:(frame.probs && frame.probs[p] != null ? frame.probs[p] : null), src};
+}
+
+function render(s){
+  const f = s.last && s.last.replay_class ? s.last : null;
+  document.getElementById("dot").className = "dot" + (s.connected ? " on" : "");
+  setText("conn", s.connected ? ("已连接 · " + (s.port || "")) : "未连接");
+  setText("port", s.port || "—");
+  setText("source", s.source || "—");
+  setText("frames", s.frames || 0);
+  setText("time", s.time || "—");
+
+  if(!f){
+    setText("verdict","等待数据…");
+    return;
+  }
+  const v = verdictOf(f);
+  document.getElementById("verdict").textContent = v.name;
+  setText("src", v.src);
+  setText("conf", v.conf == null ? "门限判定" : (v.conf*100).toFixed(1) + "%");
+  setText("replay-cls", (f.replay_class || "—") + (f.replay_idx != null ? " (#" + f.replay_idx + ")" : ""));
+  const ad = f.adc || {};
+  const noSignal = ad.decision === "idling" && (ad.rms_units == null || ad.rms_units < 0.0005);
+  setText("adc-verdict", noSignal ? "无信号（未接线）" : (ad.decision === "wear" ? ("磨损 → " + (ad.pred_name ? CN[ad.pred_name] : "")) : (ad.decision === "idling" ? "空闲（AC-RMS " + (ad.rms_units!=null?ad.rms_units.toFixed(4):"—") + "）" : "—")));
+  const rp = f.replay || {};
+  let same = "—";
+  if(noSignal) same = "ADC 无信号（PA4→PA0 未接线）";
+  else if(ad.decision && rp.decision) same = (ad.decision === rp.decision && (ad.decision === "idling" || ad.pred === rp.pred)) ? "一致" : "不一致";
+  const me = document.getElementById("match");
+  me.textContent = same; me.className = noSignal ? "amber" : (same === "一致" ? "ok" : (same === "不一致" ? "bad" : ""));
+
+  setText("acq", f.acq_ms ? f.acq_ms.toFixed(1) : "—");
+  setText("inf", f.infer_ms ? f.infer_ms.toFixed(2) : "—");
+  setText("tot", f.total_ms ? f.total_ms.toFixed(1) : "—");
+  setText("timeouts", f.adc_timeouts != null ? f.adc_timeouts : "—");
+
+  let probs = f.probs || [];
+  let note = "";
+  if (!probs.length) {
+    const hh = (s.history || []).find(x => x.probs && x.probs.length);
+    if (hh) { probs = hh.probs; note = "（当前为空闲窗口，显示最近一次磨损窗口）"; }
+  }
+  setText("probs-note", note);
+  const box = document.getElementById("probs");
+  box.innerHTML = CLASSES.map((c,i) => {
+    const p = probs[i] != null ? probs[i] : 0;
+    return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
+      <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
+  }).join("");
+  const idle = rp.decision === "idling";
+  setText("idle-pct", idle ? "判定为空闲" : "未触发");
+  document.getElementById("idle-fill").style.width = idle ? "100%" : "0%";
+
+  // 历史表
+  if(f.__seen !== f.t){}
+  const h = s.history || [];
+  const html = h.map(x => {
+    const a = x.adc || {}, r = x.replay || {};
+    const cls = r.decision === "idling" ? "idling" : (r.pred_name || a.pred_name || "—");
+    const conf = x.probs && r.pred != null ? (x.probs[r.pred]*100).toFixed(1)+"%" : (r.decision==="idling"?"门限":"—");
+    const adcTxt = a.decision === "idling" ? "空闲" : (a.decision === "wear" ? (a.pred_name||"磨损") : "—");
+    const sameR = a.decision ? (a.decision === r.decision && (a.decision==="idling"||a.pred===r.pred)) : null;
+    return `<tr><td class="mono">${x.t||""}</td><td>${x.replay_class||""}</td><td>${adcTxt}</td>
+      <td class="mono">${r.decision==="idling"?"空闲（门限）":cls}${r.decision==="wear"&&r.pred_name!=null?" · "+CN[r.pred_name]:""}</td>
+      <td class="mono">${conf}</td><td class="mono">${(x.acq_ms||0).toFixed(1)}</td>
+      <td class="mono">${(x.infer_ms||0).toFixed(2)}</td><td class="mono">${(x.total_ms||0).toFixed(1)}</td></tr>`;
+  }).join("");
+  document.getElementById("hist").innerHTML = html || `<tr><td colspan="8" class="muted">等待数据…</td></tr>`;
+
+  // 时延柱
+  const spark = document.getElementById("spark");
+  const vals = h.map(x => x.total_ms || 0).reverse();
+  if(vals.length){
+    const mx = Math.max(...vals, 1);
+    spark.innerHTML = vals.map(v => `<div style="height:${Math.max(2,(v/mx)*64)}px"></div>`).join("");
+    setText("sminmax", "min " + Math.min(...vals).toFixed(1) + " / max " + Math.max(...vals).toFixed(1) + " ms");
+  }
+}
+
+async function tick(){
+  try{
+    const r = await fetch("/api/state", {cache:"no-store"});
+    const s = await r.json();
+    render(s);
+  }catch(e){ /* ignore */ }
+}
+setInterval(tick, 400); tick();
+</script>
+</body>
+</html>

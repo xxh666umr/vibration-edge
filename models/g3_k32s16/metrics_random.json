@@ -1,0 +1,112 @@
+{
+  "model": "VibNet",
+  "axis": "x",
+  "split": "random",
+  "params": 7972,
+  "macs": 100352,
+  "config": {
+    "c1": 16,
+    "c2": 32,
+    "c3": 48,
+    "k1": 32,
+    "s1": 16
+  },
+  "class_weight": false,
+  "epochs": 40,
+  "best_val_acc": 94.31912653106468,
+  "test": {
+    "accuracy": 94.44567627494457,
+    "precision": 93.23847703992936,
+    "recall": 94.87803916611487,
+    "f1_macro": 93.91017904033123,
+    "per_class_f1": {
+      "idling": 99.95521719659651,
+      "initial_wear": 92.11746522411129,
+      "steady_wear": 95.51998569256908,
+      "accelerating_wear": 88.04804804804805
+    },
+    "per_class_recall": {
+      "idling": 100.0,
+      "initial_wear": 90.5775075987842,
+      "steady_wear": 93.55403748467333,
+      "accelerating_wear": 95.38061158100194
+    },
+    "confusion": [
+      [
+        1116,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        596,
+        62,
+        0
+      ],
+      [
+        1,
+        40,
+        5341,
+        327
+      ],
+      [
+        0,
+        0,
+        71,
+        1466
+      ]
+    ]
+  },
+  "val": {
+    "accuracy": 94.31912653106468,
+    "precision": 92.74719946462622,
+    "recall": 95.34529710576108,
+    "f1_macro": 93.88415749085071,
+    "per_class_f1": {
+      "idling": 100.0,
+      "initial_wear": 92.47637051039698,
+      "steady_wear": 95.39966787846147,
+      "accelerating_wear": 87.66059157454437
+    },
+    "per_class_recall": {
+      "idling": 100.0,
+      "initial_wear": 92.86256643887624,
+      "steady_wear": 93.07294859444785,
+      "accelerating_wear": 95.44567338972023
+    },
+    "confusion": [
+      [
+        2233,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1223,
+        94,
+        0
+      ],
+      [
+        0,
+        105,
+        10628,
+        686
+      ],
+      [
+        0,
+        0,
+        140,
+        2934
+      ]
+    ]
+  },
+  "data_per_class_test": [
+    1116,
+    658,
+    5709,
+    1537
+  ],
+  "time_seconds": 68.55039310455322
+}

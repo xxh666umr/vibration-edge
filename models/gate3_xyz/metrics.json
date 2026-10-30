@@ -1,0 +1,10 @@
+{
+  "model": "VibNet-gate3-xyz",
+  "split": "random",
+  "params": 10483,
+  "gate_threshold": 0.019962075166404247,
+  "wear_test_acc": 98.88663967611336,
+  "idle_gate_acc": 100.0,
+  "overall4_acc": 99.02439024390245,
+  "best_val_wear_acc": 98.7539531941809
+}

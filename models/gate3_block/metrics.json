@@ -1,0 +1,42 @@
+{
+  "model": "VibNet-gate3",
+  "axis": "x",
+  "split": "block",
+  "params": 8435,
+  "config": {
+    "c1": 16,
+    "c2": 32,
+    "c3": 48,
+    "k1": 64,
+    "s1": 32
+  },
+  "gate_threshold": 0.022640619426965714,
+  "normalize": "per-window rms, clip ±6",
+  "wear_test_acc": 34.65722236276246,
+  "idle_gate_acc": 100.0,
+  "overall4_acc": 42.746314972847166,
+  "best_wear_val_acc": 95.60432610208083,
+  "wear_confusion": [
+    [
+      364,
+      294,
+      0
+    ],
+    [
+      480,
+      838,
+      4392
+    ],
+    [
+      0,
+      0,
+      1538
+    ]
+  ],
+  "idle_test_rms_max": 0.0016396575374528766,
+  "n_test": {
+    "wear": 7906,
+    "idle": 1117
+  },
+  "time_seconds": 46.51130962371826
+}

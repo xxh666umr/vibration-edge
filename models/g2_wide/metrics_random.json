@@ -1,0 +1,112 @@
+{
+  "model": "VibNet",
+  "axis": "x",
+  "split": "random",
+  "params": 15756,
+  "macs": 169728,
+  "config": {
+    "c1": 24,
+    "c2": 48,
+    "c3": 64,
+    "k1": 16,
+    "s1": 16
+  },
+  "class_weight": false,
+  "epochs": 40,
+  "best_val_acc": 93.63742171479244,
+  "test": {
+    "accuracy": 94.01330376940133,
+    "precision": 91.86377099584763,
+    "recall": 95.69026476932711,
+    "f1_macro": 93.55060244637457,
+    "per_class_f1": {
+      "idling": 100.0,
+      "initial_wear": 91.7282127031019,
+      "steady_wear": 95.1219512195122,
+      "accelerating_wear": 87.35224586288416
+    },
+    "per_class_recall": {
+      "idling": 100.0,
+      "initial_wear": 94.37689969604864,
+      "steady_wear": 92.22280609563846,
+      "accelerating_wear": 96.16135328562135
+    },
+    "confusion": [
+      [
+        1116,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        621,
+        37,
+        0
+      ],
+      [
+        0,
+        75,
+        5265,
+        369
+      ],
+      [
+        0,
+        0,
+        59,
+        1478
+      ]
+    ]
+  },
+  "val": {
+    "accuracy": 93.63742171479244,
+    "precision": 91.14037983258238,
+    "recall": 95.39922782481145,
+    "f1_macro": 93.02126241604776,
+    "per_class_f1": {
+      "idling": 100.0,
+      "initial_wear": 90.29905178701678,
+      "steady_wear": 94.80636988780311,
+      "accelerating_wear": 86.97962798937112
+    },
+    "per_class_recall": {
+      "idling": 100.0,
+      "initial_wear": 94.00151860288534,
+      "steady_wear": 91.7593484543305,
+      "accelerating_wear": 95.83604424202993
+    },
+    "confusion": [
+      [
+        2233,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1238,
+        79,
+        0
+      ],
+      [
+        0,
+        187,
+        10478,
+        754
+      ],
+      [
+        0,
+        0,
+        128,
+        2946
+      ]
+    ]
+  },
+  "data_per_class_test": [
+    1116,
+    658,
+    5709,
+    1537
+  ],
+  "time_seconds": 69.94047331809998
+}

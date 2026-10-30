@@ -1,0 +1,78 @@
+{
+  "model": "vib_cnn_x",
+  "classes": [
+    "initial_wear",
+    "steady_wear",
+    "accelerating_wear"
+  ],
+  "input": {
+    "c": 1,
+    "l": 1024,
+    "scale": 0.0441606363912267
+  },
+  "arch": {
+    "conv1": {
+      "cin": 1,
+      "cout": 16,
+      "k": 64,
+      "s": 32,
+      "lin": 1024,
+      "lout": 31
+    },
+    "pool1": {
+      "l_in": 31,
+      "l_out": 15
+    },
+    "conv2": {
+      "cin": 16,
+      "cout": 32,
+      "k": 5,
+      "s": 2,
+      "lin": 15,
+      "lout": 6
+    },
+    "pool2": {
+      "l_in": 6,
+      "l_out": 3
+    },
+    "conv3": {
+      "cin": 32,
+      "cout": 48,
+      "k": 3,
+      "s": 1,
+      "lin": 3,
+      "lout": 3
+    },
+    "gap": {
+      "l_in": 3
+    },
+    "fc": {
+      "cin": 48,
+      "cout": 3
+    }
+  },
+  "scales": {
+    "input": 0.0441606363912267,
+    "conv1_out": 0.0428748203304567,
+    "conv2_out": 0.04189379525496028,
+    "conv3_out": 0.0837816486478915,
+    "fc_acc": 0.0004937945783732444
+  },
+  "fx": {
+    "conv1": [
+      62862,
+      24
+    ],
+    "conv2": [
+      119394,
+      24
+    ],
+    "conv3": [
+      61626,
+      24
+    ]
+  },
+  "param_count": 8435,
+  "weight_bytes": 8336,
+  "bias_bytes": 396
+}

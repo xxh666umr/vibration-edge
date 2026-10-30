@@ -1,0 +1,15 @@
+{
+  "wear_float": 96.1664979757085,
+  "wear_int8": 96.35627530364373,
+  "idle_gate": 99.93348115299335,
+  "overall4_int8": 96.74057649667405,
+  "gate_threshold": 0.006,
+  "param_count": 8435,
+  "weight_bytes": 8336,
+  "bias_bytes": 396,
+  "classes": [
+    "initial_wear",
+    "steady_wear",
+    "accelerating_wear"
+  ]
+}
