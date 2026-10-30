@@ -80,6 +80,12 @@ build.bat
 tools\flash.bat
 ```
 
+固件有三个版本：
+- `firmware/`：单轴在线 ADC（117.1 ms/窗）；
+- `firmware_xyz/`：三轴 DAC 分时回放（331.4 ms/窗，离线演示）；
+- `firmware_xyz_relabel/`：三轴修正标签版回放（回放 0.970/0.955/0.960）；
+- `firmware_xyz_sync/`：三轴同步采集（PA0/PA1/PA2，100.1 + 31.39 = **131.5 ms/窗**，接传感器时用）。
+
 串口 USART1（PA9/PA10，115200 8N1）输出每窗结果与 DWT 实测时延。
 当前固件为离线回放演示（板内 DAC 回放真实样本）；把 **PA4→PA0** 短接可看到 ADC 通道与回放一致。
 
