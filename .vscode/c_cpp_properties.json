@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "name": "STM32F103 (ARM GCC)",
+      "includePath": [
+        "${workspaceFolder}/firmware_xyz_relabel/csrc",
+        "${workspaceFolder}/firmware_xyz_relabel/cmsis",
+        "${workspaceFolder}/firmware_xyz_relabel/models",
+        "${workspaceFolder}/firmware_xyz_sync/csrc",
+        "${workspaceFolder}/firmware_xyz_sync/cmsis",
+        "${workspaceFolder}/firmware_xyz_sync/models",
+        "${workspaceFolder}/models/gate3",
+        "${workspaceFolder}/models/gate3_xyz",
+        "${workspaceFolder}/models/relabel_xyz_t90"
+      ],
+      "defines": [
+        "STM32F103xE"
+      ],
+      "compilerPath": "C:/Program Files (x86)/Arm GNU Toolchain arm-none-eabi/14.2 rel1/bin/arm-none-eabi-gcc.exe",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "gcc-arm"
+    }
+  ],
+  "version": 4
+}

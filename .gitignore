@@ -11,5 +11,4 @@ __pycache__/
 data/*.npy
 data/*.parquet
 # 编辑器
-.vscode/
 .idea/
