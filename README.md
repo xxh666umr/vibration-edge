@@ -72,13 +72,15 @@ python tools\test_parity_vib3.py --model-dir models\gate3_xyz --ckpt models\gate
 
 ```powershell
 cd firmware        # 单轴
-build.bat
-tools\flash.bat
+.\build.bat
+.\tools\flash.bat
 
 cd ..\firmware_xyz # 三轴
-build.bat
-tools\flash.bat
+.\build.bat
+.\tools\flash.bat
 ```
+
+> PowerShell 里必须写 `.\build.bat`（当前目录下的程序要加 `.\`）；用 cmd 或双击则直接 `build.bat`。
 
 固件有三个版本：
 - `firmware/`：单轴在线 ADC（117.1 ms/窗）；
