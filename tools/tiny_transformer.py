@@ -27,10 +27,10 @@ from train_vib3 import load_xyz, norm3  # noqa: E402
 
 
 class TinyTransformer(nn.Module):
-    def __init__(self, in_c=3, d=24, nhead=2, ff=48, layers=1, nc=3, in_len=1024):
+    def __init__(self, in_c=3, d=24, nhead=2, ff=48, layers=1, nc=3, in_len=1024, stride=32):
         super().__init__()
-        self.patch = nn.Conv1d(in_c, d, kernel_size=64, stride=32)
-        self.n_tokens = (in_len - 64) // 32 + 1   # 31? 实际 31；用 31
+        self.patch = nn.Conv1d(in_c, d, kernel_size=64, stride=stride)
+        self.n_tokens = (in_len - 64) // stride + 1
         self.pos = nn.Parameter(torch.zeros(1, self.n_tokens, d))
         enc = nn.TransformerEncoderLayer(d_model=d, nhead=nhead, dim_feedforward=ff,
                                          dropout=0.0, batch_first=True, activation="gelu")
@@ -103,6 +103,7 @@ def main():
     ap.add_argument("--ff", type=int, default=48)
     ap.add_argument("--heads", type=int, default=2)
     ap.add_argument("--layers", type=int, default=1)
+    ap.add_argument("--stride", type=int, default=32, choices=[32, 64, 128])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=r"models\tiny_transformer")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -132,11 +133,11 @@ def main():
 
     thr = float(rms[(y == 0) & np.isin(np.arange(len(y)), tr)].max()) * 3.0
     torch.manual_seed(args.seed)
-    model = TinyTransformer(in_c, args.d, args.heads, args.ff, args.layers).to(dev)
+    model = TinyTransformer(in_c, args.d, args.heads, args.ff, args.layers, stride=args.stride).to(dev)
     n_par = sum(p.numel() for p in model.parameters())
     macs = count_macs(model, (1, in_c, 1024))
     print(f"[data] {X.shape}, 训练/验证/测试 = {len(wtr)}/{len(wva)}/{len(wte)}")
-    print(f"[model] TinyTransformer d={args.d} ff={args.ff} heads={args.heads} layers={args.layers} "
+    print(f"[model] TinyTransformer d={args.d} ff={args.ff} heads={args.heads} layers={args.layers} stride={args.stride} "
           f"params={n_par} MAC={macs} int8_KB={n_par/1024:.1f}")
 
     Xtr_t = torch.from_numpy(Xtr).to(dev)

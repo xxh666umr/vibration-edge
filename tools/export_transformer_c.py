@@ -63,11 +63,12 @@ def softmax(x, axis=-1):
 
 
 class QuantTransformer:
-    def __init__(self, ckpt, d=16, heads=2, ff=32):
+    def __init__(self, ckpt, d=16, heads=2, ff=32, stride=32, tokens=31):
         sd = ckpt["state_dict"]
         self.d, self.heads, self.ff = d, heads, ff
+        self.stride, self.T = stride, tokens
         self.hd = d // heads
-        self.pos = sd["pos"].numpy().astype(np.float32)[0]          # (31,16)
+        self.pos = sd["pos"].numpy().astype(np.float32)[0]          # (T,d)
         self.patch_w, self.patch_s = quant_w(sd["patch.weight"].numpy())
         self.patch_b = sd["patch.bias"].numpy().astype(np.float32)
         self.qkv_w, self.qkv_s = quant_w(sd["encoder.layers.0.self_attn.in_proj_weight"].numpy())
@@ -107,11 +108,11 @@ class QuantTransformer:
 
     def calibrate(self, X):
         """用 float 权重统计各阶段激活 maxabs（post-LN 结构）。"""
-        T = 31
+        T = self.T
         B = X.shape[0]
         cols = np.empty((B, T, 192), np.float32)
         for t in range(T):
-            cols[:, t, :] = X[:, :, t * 32:t * 32 + 64].reshape(B, -1)
+            cols[:, t, :] = X[:, :, t * self.stride:t * self.stride + 64].reshape(B, -1)
         stats = {"patch": float(np.abs(cols).max())}
         h = self._fmm(self.patch_w.reshape(self.d, -1), self.patch_s, cols, self.patch_b) + self.pos[:T][None]
         stats["attn"] = float(np.abs(h).max())                 # attention 输入
@@ -128,10 +129,10 @@ class QuantTransformer:
     def forward(self, x):
         """x: (B,3,1024) float normalized；post-LN 与 PyTorch 一致。"""
         B = x.shape[0]
-        T = 31
+        T = self.T
         cols = np.empty((B, T, 3 * 64), np.float32)
         for t in range(T):
-            cols[:, t, :] = x[:, :, t * 32:t * 32 + 64].reshape(B, -1)
+            cols[:, t, :] = x[:, :, t * self.stride:t * self.stride + 64].reshape(B, -1)
         xi = np.clip(np.round(cols / self.scales["patch"]), -127, 127).astype(np.int32)
         w = self.patch_w.reshape(self.d, -1).astype(np.int32)
         h = (xi @ w.T).astype(np.float32) * (self.patch_s * self.scales["patch"]) + self.patch_b
@@ -170,7 +171,9 @@ def main():
     args = ap.parse_args()
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     cfg = ck["config"]
-    qt = QuantTransformer(ck, d=cfg["d"], heads=cfg["heads"], ff=cfg["ff"])
+    stride = int(cfg.get("stride", 32))
+    T = (1024 - 64) // stride + 1
+    qt = QuantTransformer(ck, d=cfg["d"], heads=cfg["heads"], ff=cfg["ff"], stride=stride, tokens=T)
 
     X, y = load_xyz()
     rms = np.sqrt((X ** 2).mean(axis=(1, 2)))
@@ -192,7 +195,7 @@ def main():
     print(f"[quant-numpy] 随机口径 wear3 = {acc:.2f}%")
 
     # 同权重 float 参考
-    model = TinyTransformer(3, cfg["d"], cfg["heads"], cfg["ff"], cfg["layers"], 3)
+    model = TinyTransformer(3, cfg["d"], cfg["heads"], cfg["ff"], cfg["layers"], 3, stride=stride)
     model.load_state_dict(ck["state_dict"]); model.eval()
     with torch.no_grad():
         pf = model(torch.from_numpy(Xte).float()).argmax(1).numpy()
@@ -200,6 +203,7 @@ def main():
 
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
+    n_par = sum(v.numel() for v in ck["state_dict"].values())
     # 生成 C 数组（int8 权重 + float 偏置/位置/LN 参数 + 尺度）
     def carr(name, arr, ctype, fmt):
         flat = arr.reshape(-1)
@@ -235,7 +239,7 @@ def main():
         "const float T_FC1_S = %.9ef;\nconst float T_FC2_S = %.9ef;\nconst float T_HEAD_S = %.9ef;\n"
         % (qt.patch_s, qt.qkv_s, qt.out_s, qt.fc1_s, qt.fc2_s, qt.head_s))
     parts.append(
-        "const int T_D = 16;\nconst int T_HEADS = 2;\nconst int T_HD = 8;\nconst int T_FF = 32;\nconst int T_TOKENS = 31;\n")
+        "const int T_D = 16;\nconst int T_HEADS = 2;\nconst int T_HD = 8;\nconst int T_FF = 32;\nconst int T_TOKENS = %d;\n" % T)
     open(os.path.join(out, "transformer_model.c"), "w", encoding="utf-8").write("\n\n".join(parts) + "\n")
 
     header = """/* 自动生成：tiny Transformer d=16 接口 */
@@ -246,7 +250,9 @@ def main():
 #define T_INPUT_C   3
 #define T_INPUT_LEN 1024
 #define T_NUM_CLASSES 3
-#define T_PARAM_COUNT 5891
+#define T_TOKENS_N %d
+#define T_PATCH_STRIDE %d
+#define T_PARAM_COUNT %d
 #define T_PATCH_X_S  %.9ef
 #define T_ATTN_X_S   %.9ef
 #define T_CTX_X_S    %.9ef
@@ -260,14 +266,14 @@ extern const int T_D, T_HEADS, T_HD, T_FF, T_TOKENS;
 int transformer_forward(const float *input, float *probs);
 
 #endif
-""" % (qt.scales["patch"], qt.scales["attn"], qt.scales["ctx"], qt.scales["ffn"], qt.scales["gelu"], qt.scales["head"])
+""" % (T, stride, n_par, qt.scales["patch"], qt.scales["attn"], qt.scales["ctx"], qt.scales["ffn"], qt.scales["gelu"], qt.scales["head"])
     open(os.path.join(out, "transformer_model.h"), "w", encoding="utf-8").write(header)
 
     np.savez_compressed(os.path.join(out, "parity_transformer.npz"),
                         features=Xte[:100].astype(np.float32), labels=yte[:100],
                         probs=probs[:100].astype(np.float32))
     json.dump({"acc_quant_numpy": acc, "acc_float": 100.0 * float((pf == yte).mean()),
-               "params": 5891, "d": cfg["d"], "heads": cfg["heads"], "ff": cfg["ff"]},
+               "params": n_par, "d": cfg["d"], "heads": cfg["heads"], "ff": cfg["ff"]},
               open(os.path.join(out, "metrics_transformer.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
     print("[saved]", os.path.join(out, "transformer_model.c/h"))

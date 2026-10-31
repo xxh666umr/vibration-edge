@@ -10,11 +10,18 @@
 
 #include "transformer.h"
 #include "transformer_model.h"
+
+#ifdef TF_HOST
+static inline uint32_t tf_tick(void) { return 0u; }
+#else
 #include "stm32f1xx.h"
+static inline uint32_t tf_tick(void) { return tf_tick(); }
+#endif
 
 uint32_t tf_cycles[6];
 
-#define TOK   31
+#define TOK   T_TOKENS_N
+#define STRIDE T_PATCH_STRIDE
 #define DIM   16
 #define HDS   2
 #define HD    8
@@ -97,7 +104,7 @@ static float g_ctx[TOK * DIM];          /* 注意力输出 */
 static float g_f[TOK * FF];             /* FFN 隐层 */
 
 int transformer_forward(const float *input, float *probs) {
-    const uint32_t t0 = DWT->CYCCNT;
+    const uint32_t t0 = tf_tick();
     /* 1) patch conv: 3×1024 → 31×16，int8 权重 */
     {
         const float inv_p = 1.0f / T_PATCH_X_S;
@@ -113,21 +120,21 @@ int transformer_forward(const float *input, float *probs) {
             int32_t acc = 0;
             for (int c = 0; c < 3; ++c) {
                 const int8_t *wp = T_PATCH_W + ((size_t)o * 3 + c) * 64;
-                const int8_t *xp = g_xq + c * T_INPUT_LEN + t * 32;
+                const int8_t *xp = g_xq + c * T_INPUT_LEN + t * STRIDE;
                 for (int k = 0; k < 64; ++k) acc += (int32_t)wp[k] * (int32_t)xp[k];
             }
             g_h[t * DIM + o] = (float)acc * (T_PATCH_S * T_PATCH_X_S) + T_PATCH_B[o] + T_POS[t * DIM + o];
         }
     }
 
-    tf_cycles[0] = DWT->CYCCNT - t0;   /* patch */
-    const uint32_t t1 = DWT->CYCCNT;
+    tf_cycles[0] = tf_tick() - t0;   /* patch */
+    const uint32_t t1 = tf_tick();
     /* 2) QKV */
     for (int t = 0; t < TOK; ++t)
         matmul_i8w(T_QKV_W, T_QKV_B, g_h + t * DIM, DIM, 3 * DIM, T_QKV_S, T_ATTN_X_S, g_qkv + t * 3 * DIM);
 
-    tf_cycles[1] = DWT->CYCCNT - t1;   /* qkv */
-    const uint32_t t2 = DWT->CYCCNT;
+    tf_cycles[1] = tf_tick() - t1;   /* qkv */
+    const uint32_t t2 = tf_tick();
     /* 3) 每头：scores → softmax → ctx */
     for (int h = 0; h < HDS; ++h) {
         for (int i = 0; i < TOK; ++i) {
@@ -147,8 +154,8 @@ int transformer_forward(const float *input, float *probs) {
             }
     }
 
-    tf_cycles[2] = DWT->CYCCNT - t2;   /* attention */
-    const uint32_t t3 = DWT->CYCCNT;
+    tf_cycles[2] = tf_tick() - t2;   /* attention */
+    const uint32_t t3 = tf_tick();
     /* 4) out_proj + 残差 + LN1 */
     for (int t = 0; t < TOK; ++t) {
         float out[16];
@@ -157,8 +164,8 @@ int transformer_forward(const float *input, float *probs) {
         layernorm(g_h + t * DIM, T_LN1_G, T_LN1_B, DIM);
     }
 
-    tf_cycles[3] = DWT->CYCCNT - t3;   /* out+ln1 */
-    const uint32_t t4 = DWT->CYCCNT;
+    tf_cycles[3] = tf_tick() - t3;   /* out+ln1 */
+    const uint32_t t4 = tf_tick();
     /* 5) FFN: fc1 → GELU → fc2 → 残差 + final LN */
     for (int t = 0; t < TOK; ++t) {
         matmul_i8w(T_FC1_W, T_FC1_B, g_h + t * DIM, DIM, FF, T_FC1_S, T_FFN_X_S, g_f + t * FF);
@@ -169,8 +176,8 @@ int transformer_forward(const float *input, float *probs) {
         layernorm(g_h + t * DIM, T_LNF_G, T_LNF_B, DIM);
     }
 
-    tf_cycles[4] = DWT->CYCCNT - t4;   /* ffn */
-    const uint32_t t5 = DWT->CYCCNT;
+    tf_cycles[4] = tf_tick() - t4;   /* ffn */
+    const uint32_t t5 = tf_tick();
     /* 6) mean pool → head */
     float pooled[16];
     for (int i = 0; i < DIM; ++i) {
@@ -181,7 +188,7 @@ int transformer_forward(const float *input, float *probs) {
     float logits[3];
     matmul_i8w(T_HEAD_W, T_HEAD_B, pooled, DIM, 3, T_HEAD_S, T_HEAD_X_S, logits);
     softmax(logits, 3);
-    tf_cycles[5] = DWT->CYCCNT - t5;   /* head */
+    tf_cycles[5] = tf_tick() - t5;   /* head */
     int best = 0;
     for (int i = 0; i < 3; ++i) probs[i] = logits[i];
     if (probs[1] > probs[best]) best = 1;

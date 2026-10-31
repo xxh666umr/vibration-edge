@@ -1,0 +1,24 @@
+{
+  "model": "TinyTransformer",
+  "axes": "xyz",
+  "split": "random",
+  "d": 16,
+  "ff": 32,
+  "heads": 2,
+  "layers": 1,
+  "params": 5651,
+  "macs": 74800,
+  "int8_flash_kb": 5.5185546875,
+  "est_board_ms": 23.57016698779704,
+  "test_wear_acc": 98.57034412955466,
+  "idle_gate": 100.0,
+  "overall4_acc": 98.74722838137473,
+  "cnn_params": 10483,
+  "cnn_macs": 124560,
+  "cnn_test_wear": 98.88663967611336,
+  "baseline": {
+    "mac": 124560,
+    "ms": 31.4,
+    "note": "三轴 CNN 实测 31.4 ms"
+  }
+}
