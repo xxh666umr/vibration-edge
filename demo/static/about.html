@@ -69,14 +69,15 @@
   <div class="card">
     <h2>5. 板端与固件版本</h2>
     <table>
-      <thead><tr><th>固件</th><th>用途</th><th>时延</th></tr></thead>
+      <thead><tr><th>固件</th><th>用途</th><th>采集</th><th>推理</th><th>整窗</th><th>状态</th></tr></thead>
       <tbody>
-        <tr><td><code>firmware/</code></td><td>单轴在线 ADC（PA4→PA0 回放）</td><td>117.1 ms/窗</td></tr>
-        <tr><td><code>firmware_xyz/</code></td><td>三轴 DAC 分时回放（演示）</td><td>331.4 ms/窗</td></tr>
-        <tr><td><code>firmware_xyz_relabel/</code></td><td>三轴·修正标签版回放（当前板端）</td><td>331.4 ms/窗</td></tr>
-        <tr><td><code>firmware_xyz_sync/</code></td><td>三轴同步采集（PA0/PA1/PA2，接真实传感器用）</td><td>131.5 ms/窗</td></tr>
+        <tr><td><code>firmware/</code></td><td>单轴在线 ADC（PA4→PA0 回放）</td><td>100.0 ms</td><td>17.07 ms</td><td><b>117.1 ms</b></td><td class="ok">已上板</td></tr>
+        <tr><td><code>firmware_xyz/</code></td><td>三轴 DAC 分时回放（演示）</td><td>300.0 ms</td><td>31.42 ms</td><td>331.4 ms</td><td class="ok">已上板</td></tr>
+        <tr><td><code>firmware_xyz_relabel/</code></td><td>三轴·修正标签版回放（当前板端）</td><td>300.0 ms</td><td>31.42 ms</td><td>331.4 ms</td><td class="ok">已上板</td></tr>
+        <tr><td><code>firmware_xyz_sync/</code></td><td>三轴同步采集（PA0/PA1/PA2）</td><td>100.1 ms</td><td>31.39 ms</td><td><b>131.5 ms</b></td><td class="amber">已编译验证，接传感器后烧录</td></tr>
       </tbody>
     </table>
+    <p class="dim">为什么三轴回放是 300 ms：板内只有 1 个 DAC，要分 3 次放 3 个轴，每轴 100 ms；同步采集用 3 个 ADC 通道同时采，所以回到 100 ms 采集。</p>
   </div>
 
   <div class="card">

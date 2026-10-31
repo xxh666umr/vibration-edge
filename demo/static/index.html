@@ -199,7 +199,7 @@ function render(s){
   if (!probs.length || (f.replay && f.replay.decision === "idling" && !(f.adc && f.adc.decision === "wear"))) {
     warn = "空闲（无需判断阶段）";
   } else {
-    const arr = probs.slice().map(Number).sort((a,b)=>b-a);
+    const arr = probs.slice(0, 3).map(Number).sort((a,b)=>b-a);  // 只看 CNN 三类，忽略可能拼接的 ADC/回放第二组
     if (arr.length >= 2) {
       const margin = arr[0] - arr[1];
       warn = margin < 0.15 ? ("过渡区 / 不确定（margin=" + margin.toFixed(3) + "）") : ("明确（margin=" + margin.toFixed(3) + "）");
