@@ -9,7 +9,7 @@ import tempfile
 
 import numpy as np
 
-FW = r"C:\Users\lenovo\Desktop\vibration-edge\firmware_xyz_transformer"
+FW = r"C:\Users\lenovo\Desktop\vibration-edge\firmware_variants\xyz_transformer"
 MODEL = r"C:\Users\lenovo\Desktop\vibration-edge\models\tiny_transformer_d16"
 
 

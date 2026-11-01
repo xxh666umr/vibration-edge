@@ -2,6 +2,7 @@
 firmware*/build/
 firmware_xyz/build/
 firmware_xyz_relabel/build/
+firmware_variants/*/build/
 *.obj
 *.exe
 __pycache__/
