@@ -124,7 +124,7 @@
 </div>
 
 <div class="card" style="margin-top:14px">
-  <div class="label">采集波形（ADC X 轴，100 ms；每 4 点取 1 点）</div>
+  <div class="label">采集波形（ADC X 轴，100 ms；固定 4 段 DAC 回放 → ADC 回环）</div>
   <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:12px;align-items:end">
     <canvas id="waveCanvas" height="170" style="width:100%;height:170px"></canvas>
     <canvas id="specCanvas" height="170" style="width:100%;height:170px"></canvas>
@@ -133,34 +133,19 @@
 </div>
 
 <div class="card" style="margin-top:14px">
-  <div class="label">当前测量样本（板端回放，X 轴，256 点降采样）</div>
-  <canvas id="sampleCanvas" height="170" style="width:100%;height:170px"></canvas>
+  <div class="label">随机样本测试（从 90,221 窗中随机抽，板端逐窗识别）</div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <button class="btn" id="autoBtn">开始随机测试</button>
+    <span id="autoStatus" class="muted" style="font-size:12px">未开始</span>
+    <span class="muted" style="font-size:12px">已测 <b id="autoTested">0</b> 窗</span>
+  </div>
+  <canvas id="autoCanvas" height="150" style="width:100%;height:150px"></canvas>
   <div class="row">
-    <span class="muted">状态标签</span><b id="sampleLabel">—</b>
-    <span class="muted">窗口号</span><b id="sampleIdx">—</b>
-    <span class="muted">AC-RMS</span><b id="sampleRms">—</b>
+    <span class="muted">当前样本</span><b id="autoTrue">—</b>
+    <span class="muted">第几窗</span><b id="autoIdx">—</b>
+    <span class="muted">板端预测</span><b id="autoPred">—</b>
   </div>
-</div>
-
-<div class="card" style="margin-top:14px">
-  <div class="label">选窗测试（PC → 板子，测任意一窗）</div>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-    <select id="selCls">
-      <option value="0">空闲 idling</option>
-      <option value="1">初期磨损 initial</option>
-      <option value="2" selected>稳定磨损 steady</option>
-      <option value="3">加速磨损 accelerating</option>
-    </select>
-    <input id="selIdx" type="number" value="44689" min="0" style="width:120px" />
-    <button class="btn" id="selBtn">测这一窗</button>
-    <span id="selStatus" class="muted" style="font-size:12px">—</span>
-  </div>
-  <div class="row">
-    <span class="muted">真实标签</span><b id="selTrue">—</b>
-    <span class="muted">板端预测</span><b id="selPred">—</b>
-    <span class="muted">置信度</span><b id="selConf">—</b>
-    <span class="muted">门限</span><b id="selGate">—</b>
-  </div>
+  <div class="row"><span class="muted" style="font-size:11.5px">说明：模型为 v3 信号重标版；此处“当前样本”是原始文件标签，仅作对照，不作为严格精度统计。</span></div>
 </div>
 
 <div class="card" style="margin-top:14px">
@@ -338,7 +323,7 @@ function render(s){
   const wave = f.wave || [];
   drawWave(wave); drawSpectrum(wave);
   setText("waveInfo", wave.length ? (wave.length + " pts · fs≈2.56 kHz（降采样）") : "等待波形");
-  drawCurrentSample(f);
+  renderAuto(s.auto);
 
   const noteEl = document.getElementById("probs-note");
   const box = document.getElementById("probs");
@@ -417,8 +402,9 @@ function render(s){
 let sampleCls = 0;
 const SAMPLE_COLORS = ["#94a3b8", "#22d3ee", "#f59e0b", "#ef4444"];
 
-function drawSample(data){
-  const c = _canvas("sampleCanvas"); if(!c) return;
+function drawSample(data, canvasId){
+  canvasId = canvasId || "sampleCanvas";
+  const c = _canvas(canvasId); if(!c) return;
   const {ctx, w, h} = c;
   const L = 42, R = 12, T = 36, B = 40;
   const {W, H} = _frame(ctx, w, h, L, R, T, B);
@@ -483,42 +469,39 @@ function drawCurrentSample(frame){
   setText("sampleRms", rr.rms_units != null ? Number(rr.rms_units).toFixed(4) : "—");
 }
 
-async function runSelect(){
-  const cls = Number(document.getElementById("selCls").value);
-  const idx = Number(document.getElementById("selIdx").value);
-  const btn = document.getElementById("selBtn");
-  btn.disabled = true;
-  setText("selStatus", "已发送，等待板端结果…");
-  setText("selTrue", "—"); setText("selPred", "—"); setText("selConf", "—"); setText("selGate", "—");
-  try{
-    const r = await fetch("/api/select?cls=" + cls + "&idx=" + idx, {cache:"no-store"});
-    const d = await r.json();
-    if(d.error){
-      setText("selStatus", "失败：" + d.error);
-      return;
-    }
-    setText("selTrue", d.true_cn + "（# " + d.idx + "）");
-    if(d.timeout || !d.board){
-      setText("selStatus", "板端未返回（检查串口/固件是否支持选窗）");
-      return;
-    }
-    const b = d.board;
-    setText("selStatus", "完成 · 序号 " + b.seq);
-    setText("selPred", b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "") + " · " + (CN[b.pred_name] || "")));
-    setText("selConf", b.gate === "idling" ? "—" : (Number(b.conf).toFixed(1) + "%"));
-    setText("selGate", b.gate);
-  }catch(e){
-    setText("selStatus", "请求失败：" + e);
-  }finally{
-    btn.disabled = false;
-  }
+let autoEnabled = false;
+
+function renderAuto(auto){
+  if(!auto) auto = {};
+  const btn = document.getElementById("autoBtn");
+  const on = !!auto.enabled;
+  autoEnabled = on;
+  btn.textContent = on ? "停止随机测试" : "开始随机测试";
+  btn.classList.toggle("active", on);
+  setText("autoStatus", on ? "运行中：server 正在从 90,221 窗随机抽窗" : "未开始");
+  const tested = auto.tested || 0;
+  setText("autoTested", String(tested));
+  const last = auto.last || {};
+  if(last.error){ setText("autoStatus", "错误：" + last.error); return; }
+  if(!last.wave){ setText("autoTrue","—"); setText("autoIdx","—"); setText("autoPred","—"); return; }
+  const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
+  const ci = Math.max(0, order.indexOf(last.true_class));
+  drawSample({wave:last.wave, class:ci, class_cn:last.true_cn, index:last.idx}, "autoCanvas");
+  setText("autoTrue", last.true_class + " · " + last.true_cn);
+  setText("autoIdx", String(last.idx));
+  const b = last.board || {};
+  setText("autoPred", b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || "")));
 }
 
-document.getElementById("selBtn").addEventListener("click", runSelect);
-document.getElementById("selCls").addEventListener("change", () => {
-  const defaults = [100, 13032, 44689, 82765];
-  document.getElementById("selIdx").value = defaults[Number(document.getElementById("selCls").value)] || 0;
-});
+async function toggleAuto(){
+  const target = !autoEnabled;
+  try{
+    await fetch("/api/auto?on=" + (target ? 1 : 0) + "&reset=" + (target ? 1 : 0), {cache:"no-store"});
+  }catch(e){}
+  // 下一轮 tick 会刷新按钮/状态
+}
+
+document.getElementById("autoBtn").addEventListener("click", toggleAuto);
 
 async function tick(){
   try{

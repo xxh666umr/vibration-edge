@@ -35,6 +35,8 @@ DATA_DIR = os.environ.get("VIB_DATA_DIR",
                           r"C:\Users\lenovo\Desktop\工业语义通信Demo项目\data\Toolweardata")
 SAMPLE_NAMES = ["idling", "initial_wear", "steady_wear", "accelerating_wear"]
 SAMPLE_CN = ["空闲", "初期磨损", "稳定磨损", "加速磨损"]
+SAMPLE_COUNTS = [11165, 6588, 57096, 15372]
+SAMPLE_OFFSETS = [0, 11165, 11165 + 6588, 11165 + 6588 + 57096]
 
 
 def sample_payload(cls: int, idx=None):
@@ -71,14 +73,17 @@ def build_select_frame(cls: int, idx: int, seq: int):
     """把数据集某一窗转成板端可识别的 3×1024 int16 帧。"""
     import numpy as np
     cls = max(0, min(3, int(cls)))
+    # 数据集文件是"按类分开"的；REPLAY_IDX 是全局拼接序号，要减去类偏移
+    offsets = [0, 11165, 11165 + 6588, 11165 + 6588 + 57096]
     arrays = []
+    local = None
     for ax in ("x", "y", "z"):
         p = os.path.join(DATA_DIR, f"trainData_{ax}_{cls}.npy")
         if not os.path.isfile(p):
             raise FileNotFoundError(p)
         a = np.load(p, mmap_mode="r")
-        idx = max(0, min(len(a) - 1, int(idx)))
-        x = np.asarray(a[idx], np.float64)
+        local = max(0, min(len(a) - 1, int(idx) - offsets[cls]))
+        x = np.asarray(a[local], np.float64)
         codes = np.clip(np.round(2048.0 + x * 5.0 / 3.3 * 4095.0), 0, 4095).astype(np.int16)
         arrays.append(codes.tobytes())
     payload = b"".join(arrays)
@@ -115,6 +120,10 @@ class State:
         self.ser = None
         self.sel_seq = 0
         self.sel_result = {}
+        self.auto_enabled = False
+        self.auto_stats = {"tested": 0, "correct": 0}
+        self.auto_last = {}
+        self.auto_lock = threading.Lock()
 
     def start_frame(self, cls_idx, cls_name, replay_idx=None):
         with self.lock:
@@ -158,6 +167,12 @@ class State:
                 "classes": CLASSES,
                 "class_cn": {k: v for k, v in CLASS_CN.items() if k in CLASSES},
                 "time": time.strftime("%H:%M:%S"),
+                "auto": {
+                    "enabled": self.auto_enabled,
+                    "tested": self.auto_stats["tested"],
+                    "correct": self.auto_stats["correct"],
+                    "last": self.auto_last,
+                },
             }
 
 
@@ -323,6 +338,61 @@ def simulate_worker(state: State):
         state.finalize()
 
 
+def auto_worker(state: State):
+    """自动从 90,221 个窗口里随机抽窗，发给板子测，并累计正确率。"""
+    import random
+    import numpy as np
+    while True:
+        if not state.auto_enabled:
+            time.sleep(0.2)
+            continue
+        cls = random.randrange(4)
+        local = random.randrange(SAMPLE_COUNTS[cls])
+        idx = SAMPLE_OFFSETS[cls] + local
+        try:
+            with state.lock:
+                state.sel_result = {}
+            seq = state.next_seq()
+            frame, name, cn = build_select_frame(cls, idx, seq)
+            state.send_bytes(frame)
+            result = None
+            for _ in range(80):  # 最多等 4 s（板子主循环有 1.5 s 间隔）
+                time.sleep(0.05)
+                with state.lock:
+                    r = dict(state.sel_result)
+                if r.get("seq") == seq:
+                    result = r
+                    break
+            if result is None:
+                with state.lock:
+                    state.auto_last = {"timeout": True, "true_cn": cn, "idx": idx}
+                time.sleep(0.3)
+                continue
+            p = os.path.join(DATA_DIR, f"trainData_x_{cls}.npy")
+            a = np.load(p, mmap_mode="r")
+            x = np.asarray(a[local], np.float64)
+            mean = float(x.mean())
+            ac = x - mean
+            ac_rms = float(np.sqrt((ac * ac).mean()))
+            correct = ((cls == 0 and result["gate"] == "idling") or
+                       (cls > 0 and result["gate"] == "wear" and result["pred"] == cls - 1))
+            with state.lock:
+                state.auto_stats["tested"] += 1
+                if correct:
+                    state.auto_stats["correct"] += 1
+                state.auto_last = {
+                    "true_class": name, "true_cn": cn, "idx": idx,
+                    "ac_rms": ac_rms,
+                    "wave": [round(float(v), 5) for v in x[::4]],
+                    "board": result, "correct": correct,
+                }
+            time.sleep(0.15)
+        except Exception as e:
+            with state.lock:
+                state.auto_last = {"error": str(e), "true_cn": cn, "idx": idx}
+            time.sleep(1.0)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -339,6 +409,20 @@ class Handler(BaseHTTPRequestHandler):
             p = os.path.join(ROOT, "demo", "static", "index.html")
             with open(p, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/auto"):
+            q = parse_qs(urlparse(self.path).query)
+            on = q.get("on", ["0"])[0] in ("1", "true", "on")
+            reset = q.get("reset", ["0"])[0] in ("1", "true")
+            with STATE.lock:
+                STATE.auto_enabled = on
+                if reset:
+                    STATE.auto_stats = {"tested": 0, "correct": 0}
+                    STATE.auto_last = {}
+            body = json.dumps({"enabled": on,
+                               "tested": STATE.auto_stats["tested"],
+                               "correct": STATE.auto_stats["correct"]},
+                              ensure_ascii=False).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
         elif self.path.startswith("/api/select"):
             q = parse_qs(urlparse(self.path).query)
             try:
@@ -412,6 +496,7 @@ def main():
     t = threading.Thread(target=simulate_worker, args=(STATE,), daemon=True) if args.simulate \
         else threading.Thread(target=serial_worker, args=(args.port, STATE), daemon=True)
     t.start()
+    threading.Thread(target=auto_worker, args=(STATE,), daemon=True).start()
 
     url = f"http://127.0.0.1:{args.http_port}"
     print(f"[http] {url}", flush=True)
