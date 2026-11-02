@@ -71,45 +71,17 @@
 
 <div class="grid">
   <div class="card">
-    <div class="label">当前判定（板上推理结果）</div>
-    <div class="big" id="verdict">—</div>
-    <div class="row">
-      <span class="muted">来源</span><b id="src">—</b>
+    <div class="label">随机抽窗测试（板端逐窗识别）</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <button class="btn" id="autoBtn">开始随机测试</button>
+      <span id="autoStatus" class="muted" style="font-size:12px">未开始</span>
+      <span class="muted" style="font-size:12px">已测 <b id="autoTested">0</b> 窗</span>
     </div>
-    <div class="row">
-      <span class="muted">置信度</span><b id="conf">—</b>
-    </div>
-    <div class="row">
-      <span class="muted">回放样本类别</span><b id="replay-cls">—</b>
-    </div>
-    <div class="row">
-      <span class="muted">ADC 通道判定</span><b id="adc-verdict">—</b>
-    </div>
-    <div class="row">
-      <span class="muted">一致性</span><b id="match">—</b>
-    </div>
-    <div class="row">
-      <span class="muted">阶段状态</span><b id="stage-warn">—</b>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="label">时延（板上 DWT 实测）</div>
-    <div class="lat">
-      <div class="box"><div class="v" id="acq">—</div><div class="k">采集 ms</div></div>
-      <div class="box"><div class="v" id="inf">—</div><div class="k">推理 ms</div></div>
-      <div class="box"><div class="v" id="tot">—</div><div class="k">总计 ms/窗</div></div>
-    </div>
-    <div class="spark" id="spark"></div>
-    <div class="row"><span class="muted">最近 30 窗总时延</span><span id="sminmax" class="muted">—</span></div>
-  </div>
-
-  <div class="card">
-    <div class="label">磨损类别概率（CNN int8 输出）<span id="probs-note" style="color:#64748b;font-weight:400"></span></div>
-    <div class="bars" id="probs"></div>
-    <div class="bar idle" id="idle-bar-row"><div class="top"><span>idling（空闲，RMS 门限）</span><span id="idle-pct">—</span></div>
-      <div class="track"><div class="fill" id="idle-fill" style="width:0%"></div></div></div>
-    <div class="row"><span class="muted">门限阈值</span><span>单轴 &lt; 0.006 / 三轴 &lt; 0.020（数据单位，当前固件为准）</span></div>
+    <div class="big" id="autoVerdict">—</div>
+    <div class="row"><span class="muted">真实标签</span><b id="autoTrue">—</b></div>
+    <div class="row"><span class="muted">第几窗</span><b id="autoIdx">—</b></div>
+    <div class="row"><span class="muted">置信度</span><b id="autoConf">—</b></div>
+    <div class="row"><span class="muted">门限</span><b id="autoGate">—</b></div>
   </div>
 
   <div class="card">
@@ -117,46 +89,30 @@
     <div class="row"><span class="muted">串口</span><b id="port">—</b></div>
     <div class="row"><span class="muted">链路状态</span><b id="source">—</b></div>
     <div class="row"><span class="muted">已收窗口</span><b id="frames">0</b></div>
-    <div class="row"><span class="muted">ADC 超时采样</span><b id="timeouts">—</b></div>
     <div class="row"><span class="muted">更新时间</span><b id="time">—</b></div>
-    <div class="row"><span class="muted">模型</span><span>vib_cnn_gate3 · 单轴 8,435 / 三轴 10,483 参数 · int8</span></div>
+    <div class="row"><span class="muted">当前模型</span><span>vib_cnn_gate3 · 10,483 参数 · int8</span></div>
+    <div class="row"><span class="muted">测试方式</span><span>PC 随机抽窗 → UART → 板端门限 + CNN</span></div>
   </div>
 </div>
 
 <div class="card" style="margin-top:14px">
-  <div class="label">采集波形（ADC X 轴，100 ms；固定 4 段 DAC 回放 → ADC 回环）</div>
+  <div class="label">当前随机样本：波形 / 频谱</div>
   <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:12px;align-items:end">
-    <canvas id="waveCanvas" height="170" style="width:100%;height:170px"></canvas>
-    <canvas id="specCanvas" height="170" style="width:100%;height:170px"></canvas>
+    <canvas id="autoWaveCanvas" height="180" style="width:100%;height:180px"></canvas>
+    <canvas id="autoSpecCanvas" height="180" style="width:100%;height:180px"></canvas>
   </div>
-  <div class="row"><span class="muted">波形 / 频谱（降采样后 0~1.28 kHz，示意）</span><span id="waveInfo" class="muted">—</span></div>
+  <div class="row"><span class="muted">波形 / 频谱（256 点降采样，0~1.28 kHz 示意）</span><span id="autoWaveInfo" class="muted">—</span></div>
 </div>
 
 <div class="card" style="margin-top:14px">
-  <div class="label">随机样本测试（从 90,221 窗中随机抽，板端逐窗识别）</div>
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-    <button class="btn" id="autoBtn">开始随机测试</button>
-    <span id="autoStatus" class="muted" style="font-size:12px">未开始</span>
-    <span class="muted" style="font-size:12px">已测 <b id="autoTested">0</b> 窗</span>
-  </div>
-  <canvas id="autoCanvas" height="150" style="width:100%;height:150px"></canvas>
-  <div class="row">
-    <span class="muted">当前样本</span><b id="autoTrue">—</b>
-    <span class="muted">第几窗</span><b id="autoIdx">—</b>
-    <span class="muted">板端预测</span><b id="autoPred">—</b>
-  </div>
-  <div class="row"><span class="muted" style="font-size:11.5px">说明：模型为 v3 信号重标版；此处“当前样本”是原始文件标签，仅作对照，不作为严格精度统计。</span></div>
-</div>
-
-<div class="card" style="margin-top:14px">
-  <div class="label">最近识别记录</div>
+  <div class="label">随机测试记录（最近 30 窗）</div>
   <table>
-    <thead><tr><th>时间</th><th>回放样本</th><th>ADC 判定</th><th>CNN 预测</th><th>置信度</th><th>采集 ms</th><th>推理 ms</th><th>总计 ms</th></tr></thead>
-    <tbody id="hist"><tr><td colspan="8" class="muted">等待数据…</td></tr></tbody>
+    <thead><tr><th>时间</th><th>真实标签</th><th>窗号</th><th>板端预测</th><th>置信度</th><th>门限</th></tr></thead>
+    <tbody id="autoHist"><tr><td colspan="6" class="muted">等待随机测试…</td></tr></tbody>
   </table>
 </div>
 
-<footer>数据链路：STM32F103ZET6（ADC 10.24 kHz → RMS 门限 → 归一化 int8 → 3 类 CNN）→ USART1/CH340 → demo/server.py → HTTP → 本页。无接线时 ADC 判空闲，内置回放样本演示 4 类识别。</footer>
+<footer>数据链路：PC 从 SDU-QIT 9 万窗随机抽一窗 → UART 下发 3×1024 原始码 → STM32F103ZET6 门限 + int8 CNN → 结果回传 → 本页。固定 4 段 DAC 回放仅用于硬件链路检查，不再作为主界面。</footer>
 
 <script>
 const CN = {idling:"空闲", initial_wear:"初期磨损", steady_wear:"稳定磨损", accelerating_wear:"加速磨损"};
@@ -250,8 +206,8 @@ function drawWave(wave){
   ctx.fillText("时间 / ms", L + W/2 - 28, h - 5);
 }
 
-function drawSpectrum(wave){
-  const c = _canvas("specCanvas"); if(!c) return;
+function drawSpectrum(wave, canvasId){
+  const c = _canvas(canvasId || "specCanvas"); if(!c) return;
   const {ctx, w, h} = c;
   const L = 42, R = 12, T = 36, B = 40;
   const {W, H} = _frame(ctx, w, h, L, R, T, B);
@@ -288,115 +244,26 @@ function drawSpectrum(wave){
 }
 
 function render(s){
-  const f = s.last && s.last.replay_class ? s.last : null;
   document.getElementById("dot").className = "dot" + (s.connected ? " on" : "");
   setText("conn", s.connected ? ("已连接 · " + (s.port || "")) : "未连接");
   setText("port", s.port || "—");
   setText("source", s.source || "—");
   setText("frames", s.frames || 0);
   setText("time", s.time || "—");
+  renderAuto(s.auto || {});
+  renderAutoHistory((s.auto || {}).history || []);
+}
 
-  if(!f){
-    setText("verdict","等待数据…");
-    return;
-  }
-  const v = verdictOf(f);
-  document.getElementById("verdict").textContent = v.name;
-  setText("src", v.src);
-  setText("conf", v.conf == null ? "门限判定" : (v.conf*100).toFixed(1) + "%");
-  setText("replay-cls", (f.replay_class || "—") + (f.replay_idx != null ? " (#" + f.replay_idx + ")" : ""));
-  const ad = f.adc || {};
-  const noSignal = ad.decision === "idling" && (ad.rms_units == null || ad.rms_units < 0.0005);
-  setText("adc-verdict", noSignal ? "无信号（未接线）" : (ad.decision === "wear" ? ("磨损 → " + (ad.pred_name ? CN[ad.pred_name] : "")) : (ad.decision === "idling" ? "空闲（AC-RMS " + (ad.rms_units!=null?ad.rms_units.toFixed(4):"—") + "）" : "—")));
-  const rp = f.replay || {};
-  let same = "—";
-  if(noSignal) same = "ADC 无信号（PA4→PA0 未接线）";
-  else if(ad.decision && rp.decision) same = (ad.decision === rp.decision && (ad.decision === "idling" || ad.pred === rp.pred)) ? "一致" : "不一致";
-  const me = document.getElementById("match");
-  me.textContent = same; me.className = noSignal ? "amber" : (same === "一致" ? "ok" : (same === "不一致" ? "bad" : ""));
-
-  const frameIdle = f.replay && f.replay.decision === "idling" && !(f.adc && f.adc.decision === "wear");
-  setText("acq", f.acq_ms ? f.acq_ms.toFixed(1) : "—");
-  setText("inf", frameIdle ? "0.00" : (f.infer_ms ? f.infer_ms.toFixed(2) : "—"));
-  setText("tot", f.acq_ms ? (frameIdle ? f.acq_ms.toFixed(1) : (f.total_ms || f.acq_ms).toFixed(1)) : "—");
-  setText("timeouts", f.adc_timeouts != null ? f.adc_timeouts : "—");
-  const wave = f.wave || [];
-  drawWave(wave); drawSpectrum(wave);
-  setText("waveInfo", wave.length ? (wave.length + " pts · fs≈2.56 kHz（降采样）") : "等待波形");
-  renderAuto(s.auto);
-
-  const noteEl = document.getElementById("probs-note");
-  const box = document.getElementById("probs");
-  let probs = [];
-  let note = "";
-  if (frameIdle) {
-    // 空闲：四条线都保留，idling=100%，三个磨损类=0%
-    probs = [0, 0, 0];
-    note = "（空闲：CNN 不跑，三类概率为 0）";
-  } else {
-    probs = f.probs || [];
-    if (!probs.length) {
-      const hh = (s.history || []).find(x => x.probs && x.probs.length);
-      if (hh) { probs = hh.probs; note = "（当前结果缺少概率，显示最近一次磨损窗口）"; }
-    }
-  }
-  noteEl.textContent = note;
-  noteEl.style.color = note ? "#f59e0b" : "#64748b";
-  box.innerHTML = CLASSES.map((c,i) => {
-    const p = probs[i] != null ? probs[i] : 0;
-    return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
-      <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
+function renderAutoHistory(h){
+  const tb = document.getElementById("autoHist");
+  if(!tb) return;
+  if(!h.length){ tb.innerHTML = '<tr><td colspan="6" class="muted">等待随机测试…</td></tr>'; return; }
+  tb.innerHTML = h.map(x => {
+    const b = x.board || {};
+    const pred = b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || ""));
+    const conf = b.gate === "idling" ? "—" : (Number(b.conf).toFixed(1) + "%");
+    return `<tr><td>${x.t}</td><td>${x.true_class} · ${x.true_cn}</td><td>${x.idx}</td><td>${pred}</td><td>${conf}</td><td>${b.gate || "—"}</td></tr>`;
   }).join("");
-
-  const idle = frameIdle || rp.decision === "idling";
-  setText("idle-pct", idle ? "100.0%" : "0.0%");
-  document.getElementById("idle-fill").style.width = idle ? "100%" : "0%";
-
-  // 过渡预警：top1 与 top2 概率接近 → 处于相邻阶段过渡区
-  let warn = "—";
-  if (idle) {
-    warn = "空闲（无需判断阶段）";
-  } else {
-    const arr = probs.slice(0, 3).map(Number).sort((a,b)=>b-a);  // 只看 CNN 三类
-    if (arr.length >= 2) {
-      const margin = arr[0] - arr[1];
-      warn = margin < 0.15 ? ("过渡区 / 不确定（margin=" + margin.toFixed(3) + "）") : ("明确（margin=" + margin.toFixed(3) + "）");
-    }
-  }
-  const we0 = document.getElementById("stage-warn");
-  we0.textContent = warn;
-  we0.className = warn.indexOf("过渡") >= 0 ? "amber" : (warn.indexOf("明确") >= 0 ? "ok" : "");
-
-  // 历史表
-  if(f.__seen !== f.t){}
-  const h = s.history || [];
-  const html = h.map(x => {
-    const a = x.adc || {}, r = x.replay || {};
-    const cls = r.decision === "idling" ? "idling" : (r.pred_name || a.pred_name || "—");
-    const conf = x.probs && r.pred != null ? (x.probs[r.pred]*100).toFixed(1)+"%" : (r.decision==="idling"?"门限":"—");
-    const adcTxt = a.decision === "idling" ? "空闲" : (a.decision === "wear" ? (a.pred_name||"磨损") : "—");
-    const isIdle = r.decision === "idling";
-    const hAcq = x.acq_ms || 0;
-    const hInf = isIdle ? 0 : (x.infer_ms || 0);
-    const hTot = isIdle ? hAcq : (x.total_ms || hAcq);
-    return `<tr><td class="mono">${x.t||""}</td><td>${x.replay_class||""}</td><td>${adcTxt}</td>
-      <td class="mono">${isIdle?"空闲（门限）":cls}${r.decision==="wear"&&r.pred_name!=null?" · "+CN[r.pred_name]:""}</td>
-      <td class="mono">${conf}</td><td class="mono">${hAcq.toFixed(1)}</td>
-      <td class="mono">${hInf.toFixed(2)}</td><td class="mono">${hTot.toFixed(1)}</td></tr>`;
-  }).join("");
-  document.getElementById("hist").innerHTML = html || `<tr><td colspan="8" class="muted">等待数据…</td></tr>`;
-
-  // 时延柱
-  const spark = document.getElementById("spark");
-  const vals = h.map(x => {
-    const r = x.replay || {};
-    return r.decision === "idling" ? (x.acq_ms || 0) : (x.total_ms || 0);
-  }).reverse();
-  if(vals.length){
-    const mx = Math.max(...vals, 1);
-    spark.innerHTML = vals.map(v => `<div style="height:${Math.max(2,(v/mx)*64)}px"></div>`).join("");
-    setText("sminmax", "min " + Math.min(...vals).toFixed(1) + " / max " + Math.max(...vals).toFixed(1) + " ms");
-  }
 }
 
 let sampleCls = 0;
@@ -478,19 +345,26 @@ function renderAuto(auto){
   autoEnabled = on;
   btn.textContent = on ? "停止随机测试" : "开始随机测试";
   btn.classList.toggle("active", on);
-  setText("autoStatus", on ? "运行中：server 正在从 90,221 窗随机抽窗" : "未开始");
-  const tested = auto.tested || 0;
-  setText("autoTested", String(tested));
+  setText("autoStatus", on ? "运行中：server 正在随机抽窗" : "未开始");
+  setText("autoTested", String(auto.tested || 0));
   const last = auto.last || {};
   if(last.error){ setText("autoStatus", "错误：" + last.error); return; }
-  if(!last.wave){ setText("autoTrue","—"); setText("autoIdx","—"); setText("autoPred","—"); return; }
-  const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
-  const ci = Math.max(0, order.indexOf(last.true_class));
-  drawSample({wave:last.wave, class:ci, class_cn:last.true_cn, index:last.idx}, "autoCanvas");
+  if(!last.wave){
+    setText("autoVerdict", "等待随机样本…");
+    setText("autoTrue","—"); setText("autoIdx","—"); setText("autoConf","—"); setText("autoGate","—");
+    return;
+  }
+  const b = last.board || {};
+  setText("autoVerdict", b.gate === "idling" ? "idling · 空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || "")));
   setText("autoTrue", last.true_class + " · " + last.true_cn);
   setText("autoIdx", String(last.idx));
-  const b = last.board || {};
-  setText("autoPred", b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || "")));
+  setText("autoConf", b.gate === "idling" ? "—" : (Number(b.conf).toFixed(1) + "%"));
+  setText("autoGate", b.gate || "—");
+  const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
+  const ci = Math.max(0, order.indexOf(last.true_class));
+  drawSample({wave:last.wave, class:ci, class_cn:last.true_cn, index:last.idx}, "autoWaveCanvas");
+  drawSpectrum(last.wave, "autoSpecCanvas");
+  setText("autoWaveInfo", "第 " + last.idx + " 窗 · 256 点 · AC-RMS " + Number(last.ac_rms).toFixed(4));
 }
 
 async function toggleAuto(){

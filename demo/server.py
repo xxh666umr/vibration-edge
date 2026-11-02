@@ -123,6 +123,7 @@ class State:
         self.auto_enabled = False
         self.auto_stats = {"tested": 0, "correct": 0}
         self.auto_last = {}
+        self.auto_history = []
         self.auto_lock = threading.Lock()
 
     def start_frame(self, cls_idx, cls_name, replay_idx=None):
@@ -172,6 +173,7 @@ class State:
                     "tested": self.auto_stats["tested"],
                     "correct": self.auto_stats["correct"],
                     "last": self.auto_last,
+                    "history": self.auto_history,
                 },
             }
 
@@ -386,6 +388,12 @@ def auto_worker(state: State):
                     "wave": [round(float(v), 5) for v in x[::4]],
                     "board": result, "correct": correct,
                 }
+                state.auto_history.insert(0, {
+                    "t": time.strftime("%H:%M:%S"),
+                    "true_class": name, "true_cn": cn, "idx": idx,
+                    "board": result, "correct": correct,
+                })
+                del state.auto_history[30:]
             time.sleep(0.15)
         except Exception as e:
             with state.lock:
