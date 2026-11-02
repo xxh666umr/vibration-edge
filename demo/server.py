@@ -31,6 +31,7 @@ CLASS_CN = {"idling": "空闲", "initial_wear": "初期磨损",
 
 RE_WINDOW = re.compile(r"--- window: replay class (\d+) \((\w+)\) ---")
 RE_ACQ = re.compile(r"\[acq\s*\] (\d+) cycles \(([\d.]+) ms\).*adc_timeouts=(\d+)")
+RE_WAVE = re.compile(r"\[wave\]\s+(.+)")
 RE_ADC = re.compile(r"\[adc\s*\] mean=(-?\d+) rms_ac=([\d.]+)code \(([\d.]+)V, ([\d.]+) unit\) -> (idling|wear.*)")
 RE_ADC_PRED = re.compile(r"wear, pred=(\d+) \((\w+)\)")
 RE_REPLAY = re.compile(r"\[replay\] mean=(-?\d+) rms_ac=([\d.]+)code \(([\d.]+)V, ([\d.]+) unit\) -> (idling|wear.*)")
@@ -55,7 +56,7 @@ class State:
         with self.lock:
             self.cur = {"t": time.strftime("%H:%M:%S"), "replay_class": cls_name,
                         "replay_idx": cls_idx, "probs": [], "adc": {}, "replay": {},
-                        "acq_ms": 0.0, "infer_ms": 0.0, "total_ms": 0.0}
+                        "acq_ms": 0.0, "infer_ms": 0.0, "total_ms": 0.0, "wave": []}
 
     def finalize(self):
         with self.lock:
@@ -99,6 +100,13 @@ def parse_line(line: str):
         cur["acq_cycles"] = int(m.group(1))
         cur["acq_ms"] = float(m.group(2))
         cur["adc_timeouts"] = int(m.group(3))
+        return
+    m = RE_WAVE.search(line)
+    if m:
+        try:
+            cur["wave"] = [int(v) for v in m.group(1).split()]
+        except ValueError:
+            cur["wave"] = []
         return
     m = RE_ADC.search(line)
     if m:
@@ -206,6 +214,12 @@ def simulate_worker(state: State):
         else:
             cur["replay"] = {"decision": "idling", "rms_v": 0.006, "rms_units": 0.0016}
             cur["adc"] = {"decision": "idling", "rms_v": 0.001, "rms_units": 0.0002}
+        # 模拟波形：和固件一样每 4 点取 1 点，256 点
+        import math
+        amp = 6.0 if cls == 0 else 60.0 + 40.0 * cls
+        freq = 120.0 + 40.0 * cls
+        cur["wave"] = [int(2048 + amp * math.sin(2 * math.pi * freq * i / 2560.0)
+                           + random.uniform(-8, 8)) for i in range(256)]
         cur["acq_ms"] = acq
         cur["infer_ms"] = 17.07 if cls > 0 else 0.0
         cur["total_ms"] = acq + cur["infer_ms"]

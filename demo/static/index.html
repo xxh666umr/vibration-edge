@@ -101,7 +101,7 @@
   <div class="card">
     <div class="label">磨损类别概率（CNN int8 输出）<span id="probs-note" style="color:#64748b;font-weight:400"></span></div>
     <div class="bars" id="probs"></div>
-    <div class="bar idle"><div class="top"><span>idling（空闲，RMS 门限）</span><span id="idle-pct">—</span></div>
+    <div class="bar idle" id="idle-bar-row"><div class="top"><span>idling（空闲，RMS 门限）</span><span id="idle-pct">—</span></div>
       <div class="track"><div class="fill" id="idle-fill" style="width:0%"></div></div></div>
     <div class="row"><span class="muted">门限阈值</span><span>单轴 &lt; 0.006 / 三轴 &lt; 0.020（数据单位，当前固件为准）</span></div>
   </div>
@@ -115,6 +115,15 @@
     <div class="row"><span class="muted">更新时间</span><b id="time">—</b></div>
     <div class="row"><span class="muted">模型</span><span>vib_cnn_gate3 · 单轴 8,435 / 三轴 10,483 参数 · int8</span></div>
   </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="label">采集波形（ADC X 轴，100 ms；每 4 点取 1 点）</div>
+  <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:12px;align-items:end">
+    <canvas id="waveCanvas" height="170" style="width:100%;height:170px"></canvas>
+    <canvas id="specCanvas" height="170" style="width:100%;height:170px"></canvas>
+  </div>
+  <div class="row"><span class="muted">波形 / 频谱（降采样后 0~1.28 kHz，示意）</span><span id="waveInfo" class="muted">—</span></div>
 </div>
 
 <div class="card" style="margin-top:14px">
@@ -146,6 +155,78 @@ function verdictOf(frame){
   if(d.decision === "idling") return {name:"idling · 空闲", conf:null, src};
   const p = d.pred;
   return {name:(d.pred_name || "?") + " · " + (CN[d.pred_name]||""), conf:(frame.probs && frame.probs[p] != null ? frame.probs[p] : null), src};
+}
+
+function drawWave(wave){
+  const c = document.getElementById("waveCanvas");
+  if(!c) return;
+  const w = c.clientWidth || 640, h = c.clientHeight || 170;
+  const dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
+  for(let i=0;i<=4;i++){ const y = 10 + i*(h-30)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  if(!wave || !wave.length){
+    ctx.fillStyle = "#64748b"; ctx.font = "13px sans-serif"; ctx.fillText("等待波形（固件发送 [wave] 后显示）", 16, h/2);
+    return;
+  }
+  const n = wave.length;
+  let mean = 0; for(const v of wave) mean += v; mean /= n;
+  let amp = 1; for(const v of wave) amp = Math.max(amp, Math.abs(v-mean));
+  ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 1.2; ctx.beginPath();
+  for(let i=0;i<n;i++){
+    const x = i/(n-1)*w;
+    const y = 10 + (h-30)/2 - (wave[i]-mean)/amp*(h-30)/2*0.9;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
+  ctx.fillText("0 ms", 4, h-4); ctx.fillText("100 ms", w-52, h-4);
+  ctx.fillText("±" + Math.round(amp) + " code", 6, 16);
+}
+
+function drawSpectrum(wave){
+  const c = document.getElementById("specCanvas");
+  if(!c) return;
+  const w = c.clientWidth || 420, h = c.clientHeight || 170;
+  const dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  if(!wave || wave.length < 8){
+    ctx.fillStyle = "#64748b"; ctx.font = "13px sans-serif"; ctx.fillText("等待频谱", 16, h/2);
+    return;
+  }
+  const n = wave.length, fs = 2560; // 每 4 点取 1 点 → 10.24k/4
+  let mean = 0; for(const v of wave) mean += v; mean /= n;
+  const half = Math.floor(n/2), mags = new Array(half+1).fill(0);
+  let maxm = 1e-9;
+  for(let k=0;k<=half;k++){
+    let re=0, im=0;
+    for(let i=0;i<n;i++){
+      const win = 0.5 - 0.5*Math.cos(2*Math.PI*i/(n-1));
+      const x = (wave[i]-mean)*win;
+      re += x*Math.cos(2*Math.PI*k*i/n);
+      im -= x*Math.sin(2*Math.PI*k*i/n);
+    }
+    mags[k] = Math.hypot(re,im); maxm = Math.max(maxm, mags[k]);
+  }
+  ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
+  for(let i=0;i<=4;i++){ const y=10+i*(h-30)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  ctx.fillStyle = "#f59e0b";
+  for(let k=1;k<=half;k++){
+    const x = (k-1)/(half-1)*w;
+    const bh = mags[k]/maxm*(h-30);
+    ctx.fillRect(x, h-10-bh, Math.max(1,w/half*0.6), bh);
+  }
+  ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
+  ctx.fillText("0 Hz", 4, h-4); ctx.fillText(Math.round(fs/2)+" Hz", w-46, h-4);
+  ctx.fillText("峰值 " + Math.round(maxm) + " code", 6, 16);
 }
 
 function render(s){
@@ -181,27 +262,42 @@ function render(s){
   setText("inf", frameIdle ? "0.00" : (f.infer_ms ? f.infer_ms.toFixed(2) : "—"));
   setText("tot", f.acq_ms ? (frameIdle ? f.acq_ms.toFixed(1) : (f.total_ms || f.acq_ms).toFixed(1)) : "—");
   setText("timeouts", f.adc_timeouts != null ? f.adc_timeouts : "—");
+  const wave = f.wave || [];
+  drawWave(wave); drawSpectrum(wave);
+  setText("waveInfo", wave.length ? (wave.length + " pts · fs≈2.56 kHz（降采样）") : "等待波形");
 
-  let probs = f.probs || [];
-  let note = "";
-  if (!probs.length) {
-    const hh = (s.history || []).find(x => x.probs && x.probs.length);
-    if (hh) { probs = hh.probs; note = "（当前为空闲窗口，CNN 不跑；下面是最近一次磨损窗口结果，判定以门限为准）"; }
-  }
   const noteEl = document.getElementById("probs-note");
-  noteEl.textContent = note;
-  noteEl.style.color = note ? "#f59e0b" : "#64748b";
   const box = document.getElementById("probs");
-  box.innerHTML = CLASSES.map((c,i) => {
-    const p = probs[i] != null ? probs[i] : 0;
-    return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
-      <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
-  }).join("");
+  const idleBarRow = document.getElementById("idle-bar-row");
+  if (frameIdle) {
+    // 空闲：只出一条 100% 的 idling 线，不展示上一窗的磨损概率
+    noteEl.textContent = "";
+    noteEl.style.color = "#64748b";
+    idleBarRow.style.display = "none";
+    box.innerHTML = `<div class="bar idle"><div class="top"><span>idling · 空闲（AC-RMS 门限）</span><span>100.0%</span></div>
+      <div class="track"><div class="fill" style="width:100%"></div></div></div>`;
+  } else {
+    let probs = f.probs || [];
+    let note = "";
+    if (!probs.length) {
+      const hh = (s.history || []).find(x => x.probs && x.probs.length);
+      if (hh) { probs = hh.probs; note = "（当前结果缺少概率，显示最近一次磨损窗口）"; }
+    }
+    noteEl.textContent = note;
+    noteEl.style.color = note ? "#f59e0b" : "#64748b";
+    idleBarRow.style.display = "";
+    box.innerHTML = CLASSES.map((c,i) => {
+      const p = probs[i] != null ? probs[i] : 0;
+      return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
+        <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
+    }).join("");
+  }
   // 过渡预警：top1 与 top2 概率接近 → 处于相邻阶段过渡区
   let warn = "—";
-  if (!probs.length || (f.replay && f.replay.decision === "idling" && !(f.adc && f.adc.decision === "wear"))) {
+  if (frameIdle) {
     warn = "空闲（无需判断阶段）";
   } else {
+    const probs = f.probs || [];
     const arr = probs.slice(0, 3).map(Number).sort((a,b)=>b-a);  // 只看 CNN 三类，忽略可能拼接的 ADC/回放第二组
     if (arr.length >= 2) {
       const margin = arr[0] - arr[1];
