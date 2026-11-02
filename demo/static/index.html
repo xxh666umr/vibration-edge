@@ -21,6 +21,10 @@
   .grid{display:grid;grid-template-columns:1.15fr 1fr;gap:14px}
   .card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
         border-radius:14px;padding:16px 18px}
+  .btn{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:7px;
+       padding:5px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
+  .btn:hover{border-color:#0ea5e9}
+  .btn.active{background:#0ea5e9;color:#06121f;border-color:#0ea5e9;font-weight:700}
   .label{color:var(--dim);font-size:12px;letter-spacing:.4px;margin-bottom:8px}
   .big{font-size:44px;font-weight:800;line-height:1;color:var(--cyan)}
   .big.small{font-size:34px}
@@ -124,6 +128,24 @@
     <canvas id="specCanvas" height="170" style="width:100%;height:170px"></canvas>
   </div>
   <div class="row"><span class="muted">波形 / 频谱（降采样后 0~1.28 kHz，示意）</span><span id="waveInfo" class="muted">—</span></div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="label">数据集样本可视化（SDU-QIT，X 轴，1024 点 = 100 ms）</div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <button class="btn clsbtn active" data-cls="0">空闲</button>
+    <button class="btn clsbtn" data-cls="1">初期磨损</button>
+    <button class="btn clsbtn" data-cls="2">稳定磨损</button>
+    <button class="btn clsbtn" data-cls="3">加速磨损</button>
+    <button class="btn" id="sampleRandom">随机样本</button>
+    <span id="sampleInfo" class="muted" style="font-size:12px">—</span>
+  </div>
+  <canvas id="sampleCanvas" height="170" style="width:100%;height:170px"></canvas>
+  <div class="row">
+    <span class="muted">标签</span><b id="sampleLabel">—</b>
+    <span class="muted">AC-RMS</span><b id="sampleRms">—</b>
+    <span class="muted">窗口号</span><b id="sampleIdx">—</b>
+  </div>
 </div>
 
 <div class="card" style="margin-top:14px">
@@ -268,37 +290,37 @@ function render(s){
 
   const noteEl = document.getElementById("probs-note");
   const box = document.getElementById("probs");
-  const idleBarRow = document.getElementById("idle-bar-row");
+  let probs = [];
+  let note = "";
   if (frameIdle) {
-    // 空闲：只出一条 100% 的 idling 线，不展示上一窗的磨损概率
-    noteEl.textContent = "";
-    noteEl.style.color = "#64748b";
-    idleBarRow.style.display = "none";
-    box.innerHTML = `<div class="bar idle"><div class="top"><span>idling · 空闲（AC-RMS 门限）</span><span>100.0%</span></div>
-      <div class="track"><div class="fill" style="width:100%"></div></div></div>`;
+    // 空闲：四条线都保留，idling=100%，三个磨损类=0%
+    probs = [0, 0, 0];
+    note = "（空闲：CNN 不跑，三类概率为 0）";
   } else {
-    let probs = f.probs || [];
-    let note = "";
+    probs = f.probs || [];
     if (!probs.length) {
       const hh = (s.history || []).find(x => x.probs && x.probs.length);
       if (hh) { probs = hh.probs; note = "（当前结果缺少概率，显示最近一次磨损窗口）"; }
     }
-    noteEl.textContent = note;
-    noteEl.style.color = note ? "#f59e0b" : "#64748b";
-    idleBarRow.style.display = "";
-    box.innerHTML = CLASSES.map((c,i) => {
-      const p = probs[i] != null ? probs[i] : 0;
-      return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
-        <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
-    }).join("");
   }
+  noteEl.textContent = note;
+  noteEl.style.color = note ? "#f59e0b" : "#64748b";
+  box.innerHTML = CLASSES.map((c,i) => {
+    const p = probs[i] != null ? probs[i] : 0;
+    return `<div class="bar"><div class="top"><span>${c} · ${CN[c]||""}</span><span>${(p*100).toFixed(1)}%</span></div>
+      <div class="track"><div class="fill" style="width:${(p*100).toFixed(1)}%"></div></div></div>`;
+  }).join("");
+
+  const idle = frameIdle || rp.decision === "idling";
+  setText("idle-pct", idle ? "100.0%" : "0.0%");
+  document.getElementById("idle-fill").style.width = idle ? "100%" : "0%";
+
   // 过渡预警：top1 与 top2 概率接近 → 处于相邻阶段过渡区
   let warn = "—";
-  if (frameIdle) {
+  if (idle) {
     warn = "空闲（无需判断阶段）";
   } else {
-    const probs = f.probs || [];
-    const arr = probs.slice(0, 3).map(Number).sort((a,b)=>b-a);  // 只看 CNN 三类，忽略可能拼接的 ADC/回放第二组
+    const arr = probs.slice(0, 3).map(Number).sort((a,b)=>b-a);  // 只看 CNN 三类
     if (arr.length >= 2) {
       const margin = arr[0] - arr[1];
       warn = margin < 0.15 ? ("过渡区 / 不确定（margin=" + margin.toFixed(3) + "）") : ("明确（margin=" + margin.toFixed(3) + "）");
@@ -307,10 +329,6 @@ function render(s){
   const we0 = document.getElementById("stage-warn");
   we0.textContent = warn;
   we0.className = warn.indexOf("过渡") >= 0 ? "amber" : (warn.indexOf("明确") >= 0 ? "ok" : "");
-
-  const idle = rp.decision === "idling";
-  setText("idle-pct", idle ? "判定为空闲" : "未触发");
-  document.getElementById("idle-fill").style.width = idle ? "100%" : "0%";
 
   // 历史表
   if(f.__seen !== f.t){}
@@ -343,6 +361,70 @@ function render(s){
     setText("sminmax", "min " + Math.min(...vals).toFixed(1) + " / max " + Math.max(...vals).toFixed(1) + " ms");
   }
 }
+
+let sampleCls = 0;
+const SAMPLE_COLORS = ["#94a3b8", "#22d3ee", "#f59e0b", "#ef4444"];
+
+function drawSample(data){
+  const c = document.getElementById("sampleCanvas");
+  if(!c) return;
+  const w = c.clientWidth || 900, h = c.clientHeight || 170;
+  const dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
+  for(let i=0;i<=4;i++){ const y=12+i*(h-34)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  if(!data || data.error || !data.wave || !data.wave.length){
+    ctx.fillStyle = "#ef4444"; ctx.font = "13px sans-serif";
+    ctx.fillText(data && data.error ? ("数据集读取失败：" + data.error) : "等待样本…", 16, h/2);
+    return;
+  }
+  const x0 = data.wave;
+  const n = x0.length;
+  let mean = 0; for(const v of x0) mean += v; mean /= n;
+  let amp = 1e-9; for(const v of x0) amp = Math.max(amp, Math.abs(v-mean));
+  ctx.strokeStyle = SAMPLE_COLORS[data.class] || "#22d3ee";
+  ctx.lineWidth = 1.3; ctx.beginPath();
+  for(let i=0;i<n;i++){
+    const x = i/(n-1)*w;
+    const y = 12 + (h-34)/2 - (x0[i]-mean)/amp*(h-34)/2*0.9;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
+  ctx.fillText("0 ms", 4, h-4); ctx.fillText("100 ms", w-52, h-4);
+  ctx.fillText("±" + amp.toFixed(3), 6, 18);
+}
+
+async function loadSample(cls, idx=null){
+  sampleCls = cls;
+  document.querySelectorAll(".clsbtn").forEach(b => b.classList.toggle("active", Number(b.dataset.cls) === cls));
+  try{
+    const url = "/api/sample?cls=" + cls + (idx != null ? ("&idx=" + idx) : "");
+    const r = await fetch(url, {cache:"no-store"});
+    const d = await r.json();
+    drawSample(d);
+    if(d.error){
+      setText("sampleInfo", d.error); setText("sampleLabel","—"); setText("sampleRms","—"); setText("sampleIdx","—");
+      return;
+    }
+    setText("sampleInfo", d.total.toLocaleString() + " 窗 · 第 " + d.index + " 窗 · 降采样 1/4");
+    setText("sampleLabel", d.class_name + " · " + d.class_cn);
+    setText("sampleRms", Number(d.ac_rms).toFixed(4));
+    setText("sampleIdx", String(d.index));
+  }catch(e){
+    setText("sampleInfo", "样本读取失败：" + e);
+  }
+}
+
+document.querySelectorAll(".clsbtn").forEach(b => {
+  b.addEventListener("click", () => loadSample(Number(b.dataset.cls)));
+});
+document.getElementById("sampleRandom").addEventListener("click", () => loadSample(sampleCls));
+loadSample(0);
 
 async function tick(){
   try{

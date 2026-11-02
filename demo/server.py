@@ -19,6 +19,7 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for d in (os.path.join(ROOT, ".deps"), os.environ.get("EDGE_DEPS", "")):
@@ -28,6 +29,41 @@ for d in (os.path.join(ROOT, ".deps"), os.environ.get("EDGE_DEPS", "")):
 CLASSES = ["initial_wear", "steady_wear", "accelerating_wear"]
 CLASS_CN = {"idling": "空闲", "initial_wear": "初期磨损",
             "steady_wear": "稳定磨损", "accelerating_wear": "加速磨损"}
+
+DATA_DIR = os.environ.get("VIB_DATA_DIR",
+                          r"C:\Users\lenovo\Desktop\工业语义通信Demo项目\data\Toolweardata")
+SAMPLE_NAMES = ["idling", "initial_wear", "steady_wear", "accelerating_wear"]
+SAMPLE_CN = ["空闲", "初期磨损", "稳定磨损", "加速磨损"]
+
+
+def sample_payload(cls: int, idx=None):
+    """读取 SDU-QIT 本地 npy，返回一个窗口的降采样波形和标签。"""
+    import numpy as np
+    cls = max(0, min(3, int(cls)))
+    path = os.path.join(DATA_DIR, f"trainData_x_{cls}.npy")
+    if not os.path.isfile(path):
+        return {"error": f"数据集文件不存在: {path}"}
+    a = np.load(path, mmap_mode="r")
+    n = len(a)
+    if idx is None:
+        idx = int(np.random.randint(n))
+    idx = max(0, min(n - 1, int(idx)))
+    x = np.asarray(a[idx], np.float64)
+    mean = float(x.mean())
+    ac = x - mean
+    ac_rms = float(np.sqrt((ac * ac).mean()))
+    ds = x[::4]
+    return {
+        "class": cls,
+        "class_name": SAMPLE_NAMES[cls],
+        "class_cn": SAMPLE_CN[cls],
+        "index": idx,
+        "total": n,
+        "fs": 10240,
+        "step": 4,
+        "ac_rms": ac_rms,
+        "wave": [round(float(v), 5) for v in ds],
+    }
 
 RE_WINDOW = re.compile(r"--- window: replay class (\d+) \((\w+)\) ---")
 RE_ACQ = re.compile(r"\[acq\s*\] (\d+) cycles \(([\d.]+) ms\).*adc_timeouts=(\d+)")
@@ -243,6 +279,17 @@ class Handler(BaseHTTPRequestHandler):
             p = os.path.join(ROOT, "demo", "static", "index.html")
             with open(p, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/sample"):
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                cls = int(q.get("cls", ["0"])[0])
+                idx = q.get("idx", [None])[0]
+                idx = int(idx) if idx not in (None, "") else None
+                body = json.dumps(sample_payload(cls, idx), ensure_ascii=False).encode("utf-8")
+                self._send(200, body, "application/json; charset=utf-8")
+            except Exception as e:
+                body = json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8")
+                self._send(500, body, "application/json; charset=utf-8")
         elif self.path.startswith("/api/state"):
             body = json.dumps(STATE.snapshot(), ensure_ascii=False).encode("utf-8")
             self._send(200, body, "application/json; charset=utf-8")
