@@ -19,7 +19,7 @@ if not exist "%ELF%" (
 )
 
 "%OPENOCD%" -f interface/cmsis-dap.cfg -f target/stm32f1x.cfg ^
-  -c "program {%ELF%} verify reset exit"
+  -c "adapter speed 500" -c "program {%ELF%} verify reset exit"
 
 if errorlevel 1 (
   echo [FAIL] flash failed

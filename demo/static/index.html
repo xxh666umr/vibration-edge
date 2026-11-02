@@ -103,7 +103,7 @@
     <div class="bars" id="probs"></div>
     <div class="bar idle"><div class="top"><span>idling（空闲，RMS 门限）</span><span id="idle-pct">—</span></div>
       <div class="track"><div class="fill" id="idle-fill" style="width:0%"></div></div></div>
-    <div class="row"><span class="muted">门限阈值</span><span>AC-RMS &lt; 0.020（数据单位，三轴联合）</span></div>
+    <div class="row"><span class="muted">门限阈值</span><span>单轴 &lt; 0.006 / 三轴 &lt; 0.020（数据单位，当前固件为准）</span></div>
   </div>
 
   <div class="card">
@@ -176,18 +176,21 @@ function render(s){
   const me = document.getElementById("match");
   me.textContent = same; me.className = noSignal ? "amber" : (same === "一致" ? "ok" : (same === "不一致" ? "bad" : ""));
 
+  const frameIdle = f.replay && f.replay.decision === "idling" && !(f.adc && f.adc.decision === "wear");
   setText("acq", f.acq_ms ? f.acq_ms.toFixed(1) : "—");
-  setText("inf", f.infer_ms ? f.infer_ms.toFixed(2) : "—");
-  setText("tot", f.total_ms ? f.total_ms.toFixed(1) : "—");
+  setText("inf", frameIdle ? "0.00" : (f.infer_ms ? f.infer_ms.toFixed(2) : "—"));
+  setText("tot", f.acq_ms ? (frameIdle ? f.acq_ms.toFixed(1) : (f.total_ms || f.acq_ms).toFixed(1)) : "—");
   setText("timeouts", f.adc_timeouts != null ? f.adc_timeouts : "—");
 
   let probs = f.probs || [];
   let note = "";
   if (!probs.length) {
     const hh = (s.history || []).find(x => x.probs && x.probs.length);
-    if (hh) { probs = hh.probs; note = "（当前为空闲窗口，显示最近一次磨损窗口）"; }
+    if (hh) { probs = hh.probs; note = "（当前为空闲窗口，CNN 不跑；下面是最近一次磨损窗口结果，判定以门限为准）"; }
   }
-  setText("probs-note", note);
+  const noteEl = document.getElementById("probs-note");
+  noteEl.textContent = note;
+  noteEl.style.color = note ? "#f59e0b" : "#64748b";
   const box = document.getElementById("probs");
   box.innerHTML = CLASSES.map((c,i) => {
     const p = probs[i] != null ? probs[i] : 0;
@@ -221,17 +224,23 @@ function render(s){
     const cls = r.decision === "idling" ? "idling" : (r.pred_name || a.pred_name || "—");
     const conf = x.probs && r.pred != null ? (x.probs[r.pred]*100).toFixed(1)+"%" : (r.decision==="idling"?"门限":"—");
     const adcTxt = a.decision === "idling" ? "空闲" : (a.decision === "wear" ? (a.pred_name||"磨损") : "—");
-    const sameR = a.decision ? (a.decision === r.decision && (a.decision==="idling"||a.pred===r.pred)) : null;
+    const isIdle = r.decision === "idling";
+    const hAcq = x.acq_ms || 0;
+    const hInf = isIdle ? 0 : (x.infer_ms || 0);
+    const hTot = isIdle ? hAcq : (x.total_ms || hAcq);
     return `<tr><td class="mono">${x.t||""}</td><td>${x.replay_class||""}</td><td>${adcTxt}</td>
-      <td class="mono">${r.decision==="idling"?"空闲（门限）":cls}${r.decision==="wear"&&r.pred_name!=null?" · "+CN[r.pred_name]:""}</td>
-      <td class="mono">${conf}</td><td class="mono">${(x.acq_ms||0).toFixed(1)}</td>
-      <td class="mono">${(x.infer_ms||0).toFixed(2)}</td><td class="mono">${(x.total_ms||0).toFixed(1)}</td></tr>`;
+      <td class="mono">${isIdle?"空闲（门限）":cls}${r.decision==="wear"&&r.pred_name!=null?" · "+CN[r.pred_name]:""}</td>
+      <td class="mono">${conf}</td><td class="mono">${hAcq.toFixed(1)}</td>
+      <td class="mono">${hInf.toFixed(2)}</td><td class="mono">${hTot.toFixed(1)}</td></tr>`;
   }).join("");
   document.getElementById("hist").innerHTML = html || `<tr><td colspan="8" class="muted">等待数据…</td></tr>`;
 
   // 时延柱
   const spark = document.getElementById("spark");
-  const vals = h.map(x => x.total_ms || 0).reverse();
+  const vals = h.map(x => {
+    const r = x.replay || {};
+    return r.decision === "idling" ? (x.acq_ms || 0) : (x.total_ms || 0);
+  }).reverse();
   if(vals.length){
     const mx = Math.max(...vals, 1);
     spark.innerHTML = vals.map(v => `<div style="height:${Math.max(2,(v/mx)*64)}px"></div>`).join("");
