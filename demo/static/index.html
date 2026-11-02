@@ -87,11 +87,11 @@
   </div>
 
   <div class="card">
-    <div class="label">板端信息 / 本次测试统计</div>
+    <div class="label">板端信息 / 时延</div>
     <div class="lat">
-      <div class="box"><div class="v" id="autoTestedRight">0</div><div class="k">已测窗</div></div>
-      <div class="box"><div class="v" id="autoIdle">0</div><div class="k">空闲窗</div></div>
-      <div class="box"><div class="v" id="autoWear">0</div><div class="k">磨损窗</div></div>
+      <div class="box"><div class="v" id="acq">—</div><div class="k">采集 ms</div></div>
+      <div class="box"><div class="v" id="inf">—</div><div class="k">推理 ms</div></div>
+      <div class="box"><div class="v" id="tot">—</div><div class="k">总计 ms/窗</div></div>
     </div>
     <div class="row"><span class="muted">串口</span><b id="port">—</b></div>
     <div class="row"><span class="muted">链路状态</span><b id="source">—</b></div>
@@ -282,10 +282,10 @@ function render(s){
   setText("modelLabel", s.model === "transformer" ? "Transformer tiny" : "CNN v3");
   setText("modelSize", s.model === "transformer" ? "5,523 params · float" : "10,483 params · int8");
   setText("modelInfer", s.model === "transformer" ? "57.8 ms/窗" : "31.4 ms/窗");
-  const a0 = s.auto || {};
-  setText("autoTestedRight", String(a0.tested || 0));
-  setText("autoIdle", String(a0.idle || 0));
-  setText("autoWear", String(a0.wear || 0));
+  const lf = s.last || {};
+  setText("acq", lf.acq_ms != null ? Number(lf.acq_ms).toFixed(1) : "—");
+  setText("inf", lf.infer_ms != null ? Number(lf.infer_ms).toFixed(2) : "—");
+  setText("tot", lf.total_ms != null ? Number(lf.total_ms).toFixed(1) : "—");
   const ms = document.getElementById("modelSel");
   if(ms && !document.getElementById("modelBtn").disabled && !modelSelDirty) ms.value = s.model || "cnn";
   if(s.switching) setText("modelStatus", "正在烧录，请稍候…");
