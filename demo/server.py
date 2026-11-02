@@ -52,7 +52,7 @@ def sample_payload(cls: int, idx=None):
     mean = float(x.mean())
     ac = x - mean
     ac_rms = float(np.sqrt((ac * ac).mean()))
-    ds = x[::4]
+    ds = x
     return {
         "class": cls,
         "class_name": SAMPLE_NAMES[cls],
@@ -60,7 +60,7 @@ def sample_payload(cls: int, idx=None):
         "index": idx,
         "total": n,
         "fs": 10240,
-        "step": 4,
+        "step": 1,
         "ac_rms": ac_rms,
         "wave": [round(float(v), 5) for v in ds],
     }

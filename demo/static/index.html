@@ -179,52 +179,88 @@ function verdictOf(frame){
   return {name:(d.pred_name || "?") + " · " + (CN[d.pred_name]||""), conf:(frame.probs && frame.probs[p] != null ? frame.probs[p] : null), src};
 }
 
-function drawWave(wave){
-  const c = document.getElementById("waveCanvas");
-  if(!c) return;
-  const w = c.clientWidth || 640, h = c.clientHeight || 170;
+function _canvas(id, fw, fh){
+  const c = document.getElementById(id); if(!c) return null;
+  const w = c.clientWidth || fw || 640, h = c.clientHeight || fh || 170;
   const dpr = window.devicePixelRatio || 1;
-  c.width = w * dpr; c.height = h * dpr;
+  c.width = Math.round(w*dpr); c.height = Math.round(h*dpr);
   const ctx = c.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  return {ctx, w, h};
+}
+
+function _chip(ctx, text, x, y, color){
+  ctx.font = "600 12px 'Microsoft YaHei', sans-serif";
+  const pad = 6, tw = ctx.measureText(text).width;
+  ctx.fillStyle = "rgba(15,23,42,.94)";
+  ctx.strokeStyle = "rgba(148,163,184,.35)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.rect(x, y, tw + pad*2, 22); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = color || "#cbd5e1"; ctx.fillText(text, x + pad, y + 15);
+}
+
+function _frame(ctx, w, h, L, R, T, B){
+  const W = w - L - R, H = h - T - B;
   ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
-  for(let i=0;i<=4;i++){ const y = 10 + i*(h-30)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  for(let i=0;i<=4;i++){
+    const x = L + W*i/4;
+    ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T+H); ctx.stroke();
+  }
+  for(let j=0;j<=2;j++){
+    const y = T + H*j/2;
+    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L+W, y); ctx.stroke();
+  }
+  return {W, H};
+}
+
+function _xlabels(ctx, L, W, h, labels){
+  ctx.fillStyle = "#94a3b8"; ctx.font = "11px 'Microsoft YaHei', sans-serif";
+  for(let i=0;i<labels.length;i++){
+    const x = L + W*i/(labels.length-1);
+    const s = String(labels[i]);
+    ctx.fillText(s, x - ctx.measureText(s).width/2, h - 22);
+  }
+}
+
+function drawWave(wave){
+  const c = _canvas("waveCanvas"); if(!c) return;
+  const {ctx, w, h} = c;
+  const L = 42, R = 12, T = 36, B = 40;
+  const {W, H} = _frame(ctx, w, h, L, R, T, B);
   if(!wave || !wave.length){
-    ctx.fillStyle = "#64748b"; ctx.font = "13px sans-serif"; ctx.fillText("等待波形（固件发送 [wave] 后显示）", 16, h/2);
+    ctx.fillStyle = "#64748b"; ctx.font = "13px 'Microsoft YaHei', sans-serif";
+    ctx.fillText("等待波形（固件发送 [wave] 后显示）", L, h/2);
     return;
   }
   const n = wave.length;
   let mean = 0; for(const v of wave) mean += v; mean /= n;
-  let amp = 1; for(const v of wave) amp = Math.max(amp, Math.abs(v-mean));
-  ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 1.2; ctx.beginPath();
+  let amp = 1e-9; for(const v of wave) amp = Math.max(amp, Math.abs(v-mean));
+  ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 1.5; ctx.lineJoin = "round";
+  ctx.beginPath();
   for(let i=0;i<n;i++){
-    const x = i/(n-1)*w;
-    const y = 10 + (h-30)/2 - (wave[i]-mean)/amp*(h-30)/2*0.9;
+    const x = L + i/(n-1)*W;
+    const y = T + H/2 - (wave[i]-mean)/amp*(H/2)*0.9;
     if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
   }
   ctx.stroke();
-  ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
-  ctx.fillText("0 ms", 4, h-4); ctx.fillText("100 ms", w-52, h-4);
-  ctx.fillText("±" + Math.round(amp) + " code", 6, 16);
+  _chip(ctx, "峰值 ±" + Math.round(amp) + " code", 8, 2, "#22d3ee");
+  _xlabels(ctx, L, W, h, [0, 25, 50, 75, 100]);
+  ctx.fillStyle = "#94a3b8"; ctx.font = "12px 'Microsoft YaHei', sans-serif";
+  ctx.fillText("时间 / ms", L + W/2 - 28, h - 5);
 }
 
 function drawSpectrum(wave){
-  const c = document.getElementById("specCanvas");
-  if(!c) return;
-  const w = c.clientWidth || 420, h = c.clientHeight || 170;
-  const dpr = window.devicePixelRatio || 1;
-  c.width = w * dpr; c.height = h * dpr;
-  const ctx = c.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  const c = _canvas("specCanvas"); if(!c) return;
+  const {ctx, w, h} = c;
+  const L = 42, R = 12, T = 36, B = 40;
+  const {W, H} = _frame(ctx, w, h, L, R, T, B);
   if(!wave || wave.length < 8){
-    ctx.fillStyle = "#64748b"; ctx.font = "13px sans-serif"; ctx.fillText("等待频谱", 16, h/2);
+    ctx.fillStyle = "#64748b"; ctx.font = "13px 'Microsoft YaHei', sans-serif";
+    ctx.fillText("等待频谱", L, h/2);
     return;
   }
-  const n = wave.length, fs = 2560; // 每 4 点取 1 点 → 10.24k/4
+  const n = wave.length, fs = 2560;
   let mean = 0; for(const v of wave) mean += v; mean /= n;
   const half = Math.floor(n/2), mags = new Array(half+1).fill(0);
   let maxm = 1e-9;
@@ -238,17 +274,17 @@ function drawSpectrum(wave){
     }
     mags[k] = Math.hypot(re,im); maxm = Math.max(maxm, mags[k]);
   }
-  ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
-  for(let i=0;i<=4;i++){ const y=10+i*(h-30)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  const bw = W / (half+1);
   ctx.fillStyle = "#f59e0b";
   for(let k=1;k<=half;k++){
-    const x = (k-1)/(half-1)*w;
-    const bh = mags[k]/maxm*(h-30);
-    ctx.fillRect(x, h-10-bh, Math.max(1,w/half*0.6), bh);
+    const x = L + (k-1)*bw;
+    const bh = mags[k]/maxm*H;
+    ctx.fillRect(x, T+H-bh, Math.max(1, bw*0.72), bh);
   }
-  ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
-  ctx.fillText("0 Hz", 4, h-4); ctx.fillText(Math.round(fs/2)+" Hz", w-46, h-4);
-  ctx.fillText("峰值 " + Math.round(maxm) + " code", 6, 16);
+  _chip(ctx, "峰值 " + Math.round(maxm), 8, 2, "#f59e0b");
+  _xlabels(ctx, L, W, h, [0, 320, 640, 960, 1280]);
+  ctx.fillStyle = "#94a3b8"; ctx.font = "12px 'Microsoft YaHei', sans-serif";
+  ctx.fillText("频率 / Hz", L + W/2 - 30, h - 5);
 }
 
 function render(s){
@@ -366,37 +402,51 @@ let sampleCls = 0;
 const SAMPLE_COLORS = ["#94a3b8", "#22d3ee", "#f59e0b", "#ef4444"];
 
 function drawSample(data){
-  const c = document.getElementById("sampleCanvas");
-  if(!c) return;
-  const w = c.clientWidth || 900, h = c.clientHeight || 170;
-  const dpr = window.devicePixelRatio || 1;
-  c.width = w * dpr; c.height = h * dpr;
-  const ctx = c.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 1;
-  for(let i=0;i<=4;i++){ const y=12+i*(h-34)/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  const c = _canvas("sampleCanvas"); if(!c) return;
+  const {ctx, w, h} = c;
+  const L = 42, R = 12, T = 36, B = 40;
+  const {W, H} = _frame(ctx, w, h, L, R, T, B);
   if(!data || data.error || !data.wave || !data.wave.length){
-    ctx.fillStyle = "#ef4444"; ctx.font = "13px sans-serif";
-    ctx.fillText(data && data.error ? ("数据集读取失败：" + data.error) : "等待样本…", 16, h/2);
+    ctx.fillStyle = "#ef4444"; ctx.font = "13px 'Microsoft YaHei', sans-serif";
+    ctx.fillText(data && data.error ? ("数据集读取失败：" + data.error) : "等待样本…", L, h/2);
     return;
   }
-  const x0 = data.wave;
-  const n = x0.length;
+  const x0 = data.wave, n = x0.length;
   let mean = 0; for(const v of x0) mean += v; mean /= n;
   let amp = 1e-9; for(const v of x0) amp = Math.max(amp, Math.abs(v-mean));
-  ctx.strokeStyle = SAMPLE_COLORS[data.class] || "#22d3ee";
-  ctx.lineWidth = 1.3; ctx.beginPath();
-  for(let i=0;i<n;i++){
-    const x = i/(n-1)*w;
-    const y = 12 + (h-34)/2 - (x0[i]-mean)/amp*(h-34)/2*0.9;
-    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  const color = SAMPLE_COLORS[data.class] || "#22d3ee";
+  const zeroY = T + H/2;
+
+  // 用 min/max 包络绘制：高频振动也能看清整体幅值变化，不会糊成一片
+  const cols = Math.max(100, Math.min(420, Math.floor(W/3)));
+  const top = [], bot = [];
+  for(let cidx=0; cidx<cols; cidx++){
+    const a = Math.floor(cidx*n/cols), b = Math.max(a+1, Math.floor((cidx+1)*n/cols));
+    let mn = 1e9, mx = -1e9;
+    for(let i=a;i<b && i<n;i++){ const v=x0[i]-mean; if(v<mn) mn=v; if(v>mx) mx=v; }
+    const x = L + cidx/(cols-1)*W;
+    top.push([x, zeroY - mx/amp*(H/2)*0.9]);
+    bot.push([x, zeroY - mn/amp*(H/2)*0.9]);
   }
+  ctx.beginPath();
+  ctx.moveTo(top[0][0], top[0][1]);
+  for(const p of top) ctx.lineTo(p[0], p[1]);
+  for(let i=bot.length-1;i>=0;i--) ctx.lineTo(bot[i][0], bot[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = color + "55";
+  ctx.fill();
+  ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for(let i=0;i<top.length;i++){ if(i===0) ctx.moveTo(top[i][0],top[i][1]); else ctx.lineTo(top[i][0],top[i][1]); }
   ctx.stroke();
-  ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
-  ctx.fillText("0 ms", 4, h-4); ctx.fillText("100 ms", w-52, h-4);
-  ctx.fillText("±" + amp.toFixed(3), 6, 18);
+  ctx.beginPath();
+  for(let i=0;i<bot.length;i++){ if(i===0) ctx.moveTo(bot[i][0],bot[i][1]); else ctx.lineTo(bot[i][0],bot[i][1]); }
+  ctx.stroke();
+
+  _chip(ctx, "包络 · " + data.class_cn + " · 第 " + data.index + " 窗", 8, 2, color);
+  _xlabels(ctx, L, W, h, [0, 25, 50, 75, 100]);
+  ctx.fillStyle = "#94a3b8"; ctx.font = "12px 'Microsoft YaHei', sans-serif";
+  ctx.fillText("时间 / ms", L + W/2 - 28, h - 5);
 }
 
 async function loadSample(cls, idx=null){
@@ -411,7 +461,7 @@ async function loadSample(cls, idx=null){
       setText("sampleInfo", d.error); setText("sampleLabel","—"); setText("sampleRms","—"); setText("sampleIdx","—");
       return;
     }
-    setText("sampleInfo", d.total.toLocaleString() + " 窗 · 第 " + d.index + " 窗 · 降采样 1/4");
+    setText("sampleInfo", d.total.toLocaleString() + " 窗 · 第 " + d.index + " 窗 · 原始 1024 点");
     setText("sampleLabel", d.class_name + " · " + d.class_cn);
     setText("sampleRms", Number(d.ac_rms).toFixed(4));
     setText("sampleIdx", String(d.index));
