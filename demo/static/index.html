@@ -260,7 +260,7 @@ function render(s){
   setText("time", s.time || "—");
   setText("modelLabel", s.model === "transformer" ? "Transformer tiny" : "CNN v3");
   const ms = document.getElementById("modelSel");
-  if(ms && !document.getElementById("modelBtn").disabled) ms.value = s.model || "cnn";
+  if(ms && !document.getElementById("modelBtn").disabled && !modelSelDirty) ms.value = s.model || "cnn";
   if(s.switching) setText("modelStatus", "正在烧录，请稍候…");
   renderAuto(s.auto || {});
   renderAutoHistory((s.auto || {}).history || []);
@@ -349,6 +349,7 @@ function drawCurrentSample(frame){
 }
 
 let autoEnabled = false;
+let modelSelDirty = false;
 
 function renderAuto(auto){
   if(!auto) auto = {};
@@ -402,6 +403,8 @@ async function switchModel(){
       return;
     }
     setText("modelStatus", "已切换为 " + d.label + "，等待串口重连…");
+    modelSelDirty = false;
+    document.getElementById("modelSel").value = d.model;
   }catch(e){
     setText("modelStatus", "切换失败：" + e);
   }finally{
@@ -410,6 +413,7 @@ async function switchModel(){
 }
 
 document.getElementById("modelBtn").addEventListener("click", switchModel);
+document.getElementById("modelSel").addEventListener("change", () => { modelSelDirty = true; });
 
 async function tick(){
   try{
