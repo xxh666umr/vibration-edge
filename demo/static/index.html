@@ -391,7 +391,7 @@ function renderAuto(auto){
   setText("autoTrue", last.true_class + " · " + last.true_cn);
   setText("autoIdx", String(last.idx));
   setText("autoConf", b.gate === "idling" ? "—" : ((Number(b.conf) * 100).toFixed(1) + "%"));
-  setText("autoGate", b.gate || "—");
+  setText("autoGate", b.gate === "idling" ? "空闲（idling）" : (b.gate === "wear" ? "磨损（wear）" : (b.gate || "—")));
   renderAutoProbs(b);
   const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
   const ci = Math.max(0, order.indexOf(last.true_class));
