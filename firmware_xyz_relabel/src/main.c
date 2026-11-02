@@ -256,7 +256,7 @@ int main(void) {
 
     int cls = 0;
     for (;;) {
-        printf("\r\n--- window: replay class %d (%s) ---\r\n", cls, REPLAY_NAME[cls]);
+        printf("\r\n--- window: replay class %d (%s) idx=%d ---\r\n", cls, REPLAY_NAME[cls], REPLAY_IDX[cls]);
         const uint32_t acq = acquire_window(cls);
         printf("[acq  ] %u cycles (%.1f ms), 3 axes x 1024, adc_timeouts=0\r\n", (unsigned)acq,
                (double)((float)acq * 1000.0f / (float)SystemCoreClock));

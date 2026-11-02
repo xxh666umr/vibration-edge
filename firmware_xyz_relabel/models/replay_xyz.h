@@ -424,4 +424,5 @@ static const int16_t REPLAY_XYZ[REPLAY_N][REPLAY_AXES][REPLAY_LEN] = {
   }
 };
 static const char *REPLAY_NAME[REPLAY_N] = {"idling", "initial_wear", "steady_wear", "accelerating_wear"};
+static const int REPLAY_IDX[REPLAY_N] = {100, 13032, 44689, 82765};
 #endif

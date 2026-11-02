@@ -56,6 +56,7 @@ def main():
         lines.append("  }," if c < 3 else "  }")
     lines += ["};",
               'static const char *REPLAY_NAME[REPLAY_N] = {"idling", "initial_wear", "steady_wear", "accelerating_wear"};',
+              "static const int REPLAY_IDX[REPLAY_N] = {%d, %d, %d, %d};" % (picks[0], picks[1], picks[2], picks[3]),
               "#endif"]
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     open(OUT, "w", encoding="utf-8").write("\n".join(lines) + "\n")

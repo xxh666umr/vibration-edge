@@ -65,7 +65,7 @@ def sample_payload(cls: int, idx=None):
         "wave": [round(float(v), 5) for v in ds],
     }
 
-RE_WINDOW = re.compile(r"--- window: replay class (\d+) \((\w+)\) ---")
+RE_WINDOW = re.compile(r"--- window: replay class (\d+) \((\w+)\)(?: idx=(\d+))? ---")
 RE_ACQ = re.compile(r"\[acq\s*\] (\d+) cycles \(([\d.]+) ms\).*adc_timeouts=(\d+)")
 RE_WAVE = re.compile(r"\[wave\]\s+(.+)")
 RE_ADC = re.compile(r"\[adc\s*\] mean=(-?\d+) rms_ac=([\d.]+)code \(([\d.]+)V, ([\d.]+) unit\) -> (idling|wear.*)")
@@ -88,10 +88,12 @@ class State:
         self.last = {}
         self.history = []
 
-    def start_frame(self, cls_idx, cls_name):
+    def start_frame(self, cls_idx, cls_name, replay_idx=None):
         with self.lock:
             self.cur = {"t": time.strftime("%H:%M:%S"), "replay_class": cls_name,
-                        "replay_idx": cls_idx, "probs": [], "adc": {}, "replay": {},
+                        "replay_idx": replay_idx if replay_idx is not None else cls_idx,
+                        "replay_win": replay_idx,
+                        "probs": [], "adc": {}, "replay": {},
                         "acq_ms": 0.0, "infer_ms": 0.0, "total_ms": 0.0, "wave": []}
 
     def finalize(self):
@@ -126,7 +128,8 @@ def parse_line(line: str):
     line = line.strip()
     m = RE_WINDOW.search(line)
     if m:
-        STATE.start_frame(int(m.group(1)), m.group(2))
+        STATE.start_frame(int(m.group(1)), m.group(2),
+                          int(m.group(3)) if m.group(3) else None)
         return
     cur = STATE.cur
     if cur is None:

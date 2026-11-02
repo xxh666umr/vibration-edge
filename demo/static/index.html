@@ -131,20 +131,12 @@
 </div>
 
 <div class="card" style="margin-top:14px">
-  <div class="label">数据集样本可视化（SDU-QIT，X 轴，1024 点 = 100 ms）</div>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-    <button class="btn clsbtn active" data-cls="0">空闲</button>
-    <button class="btn clsbtn" data-cls="1">初期磨损</button>
-    <button class="btn clsbtn" data-cls="2">稳定磨损</button>
-    <button class="btn clsbtn" data-cls="3">加速磨损</button>
-    <button class="btn" id="sampleRandom">随机样本</button>
-    <span id="sampleInfo" class="muted" style="font-size:12px">—</span>
-  </div>
+  <div class="label">当前测量样本（板端回放，X 轴，256 点降采样）</div>
   <canvas id="sampleCanvas" height="170" style="width:100%;height:170px"></canvas>
   <div class="row">
-    <span class="muted">标签</span><b id="sampleLabel">—</b>
-    <span class="muted">AC-RMS</span><b id="sampleRms">—</b>
+    <span class="muted">状态标签</span><b id="sampleLabel">—</b>
     <span class="muted">窗口号</span><b id="sampleIdx">—</b>
+    <span class="muted">AC-RMS</span><b id="sampleRms">—</b>
   </div>
 </div>
 
@@ -323,6 +315,7 @@ function render(s){
   const wave = f.wave || [];
   drawWave(wave); drawSpectrum(wave);
   setText("waveInfo", wave.length ? (wave.length + " pts · fs≈2.56 kHz（降采样）") : "等待波形");
+  drawCurrentSample(f);
 
   const noteEl = document.getElementById("probs-note");
   const box = document.getElementById("probs");
@@ -449,32 +442,23 @@ function drawSample(data){
   ctx.fillText("时间 / ms", L + W/2 - 28, h - 5);
 }
 
-async function loadSample(cls, idx=null){
-  sampleCls = cls;
-  document.querySelectorAll(".clsbtn").forEach(b => b.classList.toggle("active", Number(b.dataset.cls) === cls));
-  try{
-    const url = "/api/sample?cls=" + cls + (idx != null ? ("&idx=" + idx) : "");
-    const r = await fetch(url, {cache:"no-store"});
-    const d = await r.json();
-    drawSample(d);
-    if(d.error){
-      setText("sampleInfo", d.error); setText("sampleLabel","—"); setText("sampleRms","—"); setText("sampleIdx","—");
-      return;
-    }
-    setText("sampleInfo", d.total.toLocaleString() + " 窗 · 第 " + d.index + " 窗 · 原始 1024 点");
-    setText("sampleLabel", d.class_name + " · " + d.class_cn);
-    setText("sampleRms", Number(d.ac_rms).toFixed(4));
-    setText("sampleIdx", String(d.index));
-  }catch(e){
-    setText("sampleInfo", "样本读取失败：" + e);
-  }
+function drawCurrentSample(frame){
+  if(!frame) return;
+  const name = frame.replay_class || "";
+  const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
+  const ci = Math.max(0, order.indexOf(name));
+  const idx = frame.replay_win != null ? frame.replay_win : frame.replay_idx;
+  drawSample({
+    wave: frame.wave || [],
+    class: ci,
+    class_cn: CN[name] || name,
+    index: idx,
+  });
+  setText("sampleLabel", name ? (name + " · " + (CN[name] || "")) : "—");
+  setText("sampleIdx", idx != null ? String(idx) : "—");
+  const rr = frame.replay || {};
+  setText("sampleRms", rr.rms_units != null ? Number(rr.rms_units).toFixed(4) : "—");
 }
-
-document.querySelectorAll(".clsbtn").forEach(b => {
-  b.addEventListener("click", () => loadSample(Number(b.dataset.cls)));
-});
-document.getElementById("sampleRandom").addEventListener("click", () => loadSample(sampleCls));
-loadSample(0);
 
 async function tick(){
   try{
