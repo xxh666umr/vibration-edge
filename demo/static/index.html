@@ -90,8 +90,16 @@
     <div class="row"><span class="muted">链路状态</span><b id="source">—</b></div>
     <div class="row"><span class="muted">已收窗口</span><b id="frames">0</b></div>
     <div class="row"><span class="muted">更新时间</span><b id="time">—</b></div>
-    <div class="row"><span class="muted">当前模型</span><span>vib_cnn_gate3 · 10,483 参数 · int8</span></div>
-    <div class="row"><span class="muted">测试方式</span><span>PC 随机抽窗 → UART → 板端门限 + CNN</span></div>
+    <div class="row"><span class="muted">当前模型</span><b id="modelLabel">CNN v3</b></div>
+    <div class="row"><span class="muted">切换模型</span><span style="display:flex;gap:6px;align-items:center">
+      <select id="modelSel">
+        <option value="cnn">CNN v3</option>
+        <option value="transformer">Transformer tiny</option>
+      </select>
+      <button class="btn" id="modelBtn">切换（重烧）</button>
+    </span></div>
+    <div class="row"><span class="muted" id="modelStatus" style="font-size:11.5px">切换会重新烧录板子，约 10~20 秒</span></div>
+    <div class="row"><span class="muted">测试方式</span><span>PC 随机抽窗 → UART → 板端门限 + 模型</span></div>
   </div>
 </div>
 
@@ -250,6 +258,10 @@ function render(s){
   setText("source", s.source || "—");
   setText("frames", s.frames || 0);
   setText("time", s.time || "—");
+  setText("modelLabel", s.model === "transformer" ? "Transformer tiny" : "CNN v3");
+  const ms = document.getElementById("modelSel");
+  if(ms && !document.getElementById("modelBtn").disabled) ms.value = s.model || "cnn";
+  if(s.switching) setText("modelStatus", "正在烧录，请稍候…");
   renderAuto(s.auto || {});
   renderAutoHistory((s.auto || {}).history || []);
 }
@@ -261,7 +273,7 @@ function renderAutoHistory(h){
   tb.innerHTML = h.map(x => {
     const b = x.board || {};
     const pred = b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || ""));
-    const conf = b.gate === "idling" ? "—" : (Number(b.conf).toFixed(1) + "%");
+    const conf = b.gate === "idling" ? "—" : ((Number(b.conf) * 100).toFixed(1) + "%");
     return `<tr><td>${x.t}</td><td>${x.true_class} · ${x.true_cn}</td><td>${x.idx}</td><td>${pred}</td><td>${conf}</td><td>${b.gate || "—"}</td></tr>`;
   }).join("");
 }
@@ -358,7 +370,7 @@ function renderAuto(auto){
   setText("autoVerdict", b.gate === "idling" ? "idling · 空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || "")));
   setText("autoTrue", last.true_class + " · " + last.true_cn);
   setText("autoIdx", String(last.idx));
-  setText("autoConf", b.gate === "idling" ? "—" : (Number(b.conf).toFixed(1) + "%"));
+  setText("autoConf", b.gate === "idling" ? "—" : ((Number(b.conf) * 100).toFixed(1) + "%"));
   setText("autoGate", b.gate || "—");
   const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
   const ci = Math.max(0, order.indexOf(last.true_class));
@@ -376,6 +388,28 @@ async function toggleAuto(){
 }
 
 document.getElementById("autoBtn").addEventListener("click", toggleAuto);
+
+async function switchModel(){
+  const name = document.getElementById("modelSel").value;
+  const btn = document.getElementById("modelBtn");
+  btn.disabled = true;
+  setText("modelStatus", "正在烧录 " + (name === "transformer" ? "Transformer" : "CNN") + "，约 10~20 秒…");
+  try{
+    const r = await fetch("/api/model?name=" + encodeURIComponent(name), {cache:"no-store"});
+    const d = await r.json();
+    if(d.error){
+      setText("modelStatus", "切换失败：" + d.error);
+      return;
+    }
+    setText("modelStatus", "已切换为 " + d.label + "，等待串口重连…");
+  }catch(e){
+    setText("modelStatus", "切换失败：" + e);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("modelBtn").addEventListener("click", switchModel);
 
 async function tick(){
   try{

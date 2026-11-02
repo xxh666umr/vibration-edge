@@ -15,7 +15,7 @@
 static inline uint32_t tf_tick(void) { return 0u; }
 #else
 #include "stm32f1xx.h"
-static inline uint32_t tf_tick(void) { return tf_tick(); }
+static inline uint32_t tf_tick(void) { return DWT->CYCCNT; }
 #endif
 
 uint32_t tf_cycles[6];

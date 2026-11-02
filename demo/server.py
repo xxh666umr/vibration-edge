@@ -15,6 +15,7 @@ import json
 import os
 import re
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -37,6 +38,16 @@ SAMPLE_NAMES = ["idling", "initial_wear", "steady_wear", "accelerating_wear"]
 SAMPLE_CN = ["空闲", "初期磨损", "稳定磨损", "加速磨损"]
 SAMPLE_COUNTS = [11165, 6588, 57096, 15372]
 SAMPLE_OFFSETS = [0, 11165, 11165 + 6588, 11165 + 6588 + 57096]
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OPENOCD = os.environ.get(
+    "OPENOCD",
+    r"C:\Users\lenovo\AppData\Local\Microsoft\WinGet\Packages\xpack-dev-tools.openocd-xpack_Microsoft.Winget.Source_8wekyb3d8bbwe\xpack-openocd-0.12.0-7\bin\openocd.exe")
+FIRMWARES = {
+    "cnn": {"label": "CNN v3", "elf": os.path.join(ROOT, "firmware_xyz_relabel", "build", "firmware.elf")},
+    "transformer": {"label": "Transformer tiny",
+                    "elf": os.path.join(ROOT, "firmware_variants", "xyz_transformer", "build", "firmware.elf")},
+}
 
 
 def sample_payload(cls: int, idx=None):
@@ -125,6 +136,8 @@ class State:
         self.auto_last = {}
         self.auto_history = []
         self.auto_lock = threading.Lock()
+        self.model = "cnn"
+        self.switching = False
 
     def start_frame(self, cls_idx, cls_name, replay_idx=None):
         with self.lock:
@@ -168,6 +181,8 @@ class State:
                 "classes": CLASSES,
                 "class_cn": {k: v for k, v in CLASS_CN.items() if k in CLASSES},
                 "time": time.strftime("%H:%M:%S"),
+                "model": self.model,
+                "switching": self.switching,
                 "auto": {
                     "enabled": self.auto_enabled,
                     "tested": self.auto_stats["tested"],
@@ -183,6 +198,13 @@ STATE = State()
 
 def parse_line(line: str):
     line = line.strip()
+    low = line.lower()
+    if "tiny_transformer" in low or ("transformer" in low and "model" in low):
+        with STATE.lock:
+            STATE.model = "transformer"
+    elif "vib_cnn" in low:
+        with STATE.lock:
+            STATE.model = "cnn"
     m = RE_SEL.search(line)
     if m:
         pred = int(m.group(5))
@@ -401,6 +423,41 @@ def auto_worker(state: State):
             time.sleep(1.0)
 
 
+def flash_firmware(state: State, name: str):
+    """通过 OpenOCD + DAP 重新烧录指定模型固件。"""
+    info = FIRMWARES.get(name)
+    if not info:
+        raise RuntimeError(f"未知模型: {name}")
+    elf = info["elf"]
+    if not os.path.isfile(elf):
+        raise RuntimeError(f"固件不存在: {elf}")
+    cmd = [OPENOCD,
+           "-f", "interface/cmsis-dap.cfg",
+           "-f", "target/stm32f1x.cfg",
+           "-c", "adapter speed 500",
+           "-c", "init",
+           "-c", "program " + elf.replace("\\", "/") + " verify reset",
+           "-c", "reset run",
+           "-c", "exit"]
+    state.connected = False
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    out = (p.stdout or "") + "\n" + (p.stderr or "")
+    if "Verified OK" not in out:
+        raise RuntimeError("烧录失败：" + out[-500:])
+    time.sleep(2.5)
+    # 烧录后板子复位，主动关掉旧串口句柄，让 serial_worker 重新打开 COM
+    with state.lock:
+        if state.ser is not None:
+            try:
+                state.ser.close()
+            except Exception:
+                pass
+            state.ser = None
+        state.connected = False
+        state.model = name
+    return info["label"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -417,6 +474,28 @@ class Handler(BaseHTTPRequestHandler):
             p = os.path.join(ROOT, "demo", "static", "index.html")
             with open(p, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/model"):
+            q = parse_qs(urlparse(self.path).query)
+            name = q.get("name", ["cnn"])[0]
+            if name not in FIRMWARES:
+                body = json.dumps({"error": "未知模型"}, ensure_ascii=False).encode("utf-8")
+                self._send(400, body, "application/json; charset=utf-8")
+            elif STATE.switching:
+                body = json.dumps({"error": "正在切换中"}, ensure_ascii=False).encode("utf-8")
+                self._send(409, body, "application/json; charset=utf-8")
+            else:
+                STATE.switching = True
+                STATE.auto_enabled = False
+                try:
+                    label = flash_firmware(STATE, name)
+                    body = json.dumps({"ok": True, "model": name, "label": label},
+                                      ensure_ascii=False).encode("utf-8")
+                    self._send(200, body, "application/json; charset=utf-8")
+                except Exception as e:
+                    body = json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8")
+                    self._send(500, body, "application/json; charset=utf-8")
+                finally:
+                    STATE.switching = False
         elif self.path.startswith("/api/auto"):
             q = parse_qs(urlparse(self.path).query)
             on = q.get("on", ["0"])[0] in ("1", "true", "on")
