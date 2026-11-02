@@ -25,6 +25,8 @@
        padding:5px 12px;font-size:12.5px;cursor:pointer;font-family:inherit}
   .btn:hover{border-color:#0ea5e9}
   .btn.active{background:#0ea5e9;color:#06121f;border-color:#0ea5e9;font-weight:700}
+  select,input{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:7px;
+       padding:5px 8px;font-size:12.5px;font-family:inherit}
   .label{color:var(--dim);font-size:12px;letter-spacing:.4px;margin-bottom:8px}
   .big{font-size:44px;font-weight:800;line-height:1;color:var(--cyan)}
   .big.small{font-size:34px}
@@ -137,6 +139,27 @@
     <span class="muted">状态标签</span><b id="sampleLabel">—</b>
     <span class="muted">窗口号</span><b id="sampleIdx">—</b>
     <span class="muted">AC-RMS</span><b id="sampleRms">—</b>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="label">选窗测试（PC → 板子，测任意一窗）</div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <select id="selCls">
+      <option value="0">空闲 idling</option>
+      <option value="1">初期磨损 initial</option>
+      <option value="2" selected>稳定磨损 steady</option>
+      <option value="3">加速磨损 accelerating</option>
+    </select>
+    <input id="selIdx" type="number" value="44689" min="0" style="width:120px" />
+    <button class="btn" id="selBtn">测这一窗</button>
+    <span id="selStatus" class="muted" style="font-size:12px">—</span>
+  </div>
+  <div class="row">
+    <span class="muted">真实标签</span><b id="selTrue">—</b>
+    <span class="muted">板端预测</span><b id="selPred">—</b>
+    <span class="muted">置信度</span><b id="selConf">—</b>
+    <span class="muted">门限</span><b id="selGate">—</b>
   </div>
 </div>
 
@@ -459,6 +482,43 @@ function drawCurrentSample(frame){
   const rr = frame.replay || {};
   setText("sampleRms", rr.rms_units != null ? Number(rr.rms_units).toFixed(4) : "—");
 }
+
+async function runSelect(){
+  const cls = Number(document.getElementById("selCls").value);
+  const idx = Number(document.getElementById("selIdx").value);
+  const btn = document.getElementById("selBtn");
+  btn.disabled = true;
+  setText("selStatus", "已发送，等待板端结果…");
+  setText("selTrue", "—"); setText("selPred", "—"); setText("selConf", "—"); setText("selGate", "—");
+  try{
+    const r = await fetch("/api/select?cls=" + cls + "&idx=" + idx, {cache:"no-store"});
+    const d = await r.json();
+    if(d.error){
+      setText("selStatus", "失败：" + d.error);
+      return;
+    }
+    setText("selTrue", d.true_cn + "（# " + d.idx + "）");
+    if(d.timeout || !d.board){
+      setText("selStatus", "板端未返回（检查串口/固件是否支持选窗）");
+      return;
+    }
+    const b = d.board;
+    setText("selStatus", "完成 · 序号 " + b.seq);
+    setText("selPred", b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "") + " · " + (CN[b.pred_name] || "")));
+    setText("selConf", b.gate === "idling" ? "—" : (Number(b.conf).toFixed(1) + "%"));
+    setText("selGate", b.gate);
+  }catch(e){
+    setText("selStatus", "请求失败：" + e);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("selBtn").addEventListener("click", runSelect);
+document.getElementById("selCls").addEventListener("change", () => {
+  const defaults = [100, 13032, 44689, 82765];
+  document.getElementById("selIdx").value = defaults[Number(document.getElementById("selCls").value)] || 0;
+});
 
 async function tick(){
   try{

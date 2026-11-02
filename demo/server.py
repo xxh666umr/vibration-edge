@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import re
+import struct
 import sys
 import threading
 import time
@@ -65,6 +66,29 @@ def sample_payload(cls: int, idx=None):
         "wave": [round(float(v), 5) for v in ds],
     }
 
+
+def build_select_frame(cls: int, idx: int, seq: int):
+    """把数据集某一窗转成板端可识别的 3×1024 int16 帧。"""
+    import numpy as np
+    cls = max(0, min(3, int(cls)))
+    arrays = []
+    for ax in ("x", "y", "z"):
+        p = os.path.join(DATA_DIR, f"trainData_{ax}_{cls}.npy")
+        if not os.path.isfile(p):
+            raise FileNotFoundError(p)
+        a = np.load(p, mmap_mode="r")
+        idx = max(0, min(len(a) - 1, int(idx)))
+        x = np.asarray(a[idx], np.float64)
+        codes = np.clip(np.round(2048.0 + x * 5.0 / 3.3 * 4095.0), 0, 4095).astype(np.int16)
+        arrays.append(codes.tobytes())
+    payload = b"".join(arrays)
+    body = bytes([seq & 0xFF, cls & 0xFF]) + struct.pack("<I", int(idx)) + payload
+    crc = 0
+    for b in body:
+        crc ^= b
+    frame = b"\xA5\x5A" + body + bytes([crc & 0xFF])
+    return frame, SAMPLE_NAMES[cls], SAMPLE_CN[cls]
+
 RE_WINDOW = re.compile(r"--- window: replay class (\d+) \((\w+)\)(?: idx=(\d+))? ---")
 RE_ACQ = re.compile(r"\[acq\s*\] (\d+) cycles \(([\d.]+) ms\).*adc_timeouts=(\d+)")
 RE_WAVE = re.compile(r"\[wave\]\s+(.+)")
@@ -75,6 +99,7 @@ RE_REPLAY_PRED = re.compile(r"wear, pred=(\d+) \((\w+)\)")
 RE_INFER = re.compile(r"infer=(?:(\d+) cycles \()?([\d.]+) ms\)?")
 RE_PROB = re.compile(r"class (\d+) \((\w+)\): ([\d.]+)")
 RE_WINS = re.compile(r"\[window\] acq ([\d.]+) ms \+ infer ([\d.]+) ms = ([\d.]+) ms/decision")
+RE_SEL = re.compile(r"\[sel\] seq=(\d+) cls=(\d+) idx=(\d+) gate=(\w+) pred=(-?\d+) conf=([\d.]+)(?: rms=([\d.]+))?")
 
 
 class State:
@@ -87,6 +112,9 @@ class State:
         self.cur = None
         self.last = {}
         self.history = []
+        self.ser = None
+        self.sel_seq = 0
+        self.sel_result = {}
 
     def start_frame(self, cls_idx, cls_name, replay_idx=None):
         with self.lock:
@@ -105,6 +133,18 @@ class State:
             self.frames += 1
             self.last = f
             self.history = ([f] + self.history)[:40]
+
+    def next_seq(self):
+        with self.lock:
+            self.sel_seq = (self.sel_seq + 1) & 0xFF
+            return self.sel_seq
+
+    def send_bytes(self, data):
+        with self.lock:
+            if not self.connected or self.ser is None:
+                raise RuntimeError("串口未连接")
+            self.ser.write(data)
+            self.ser.flush()
 
     def snapshot(self):
         with self.lock:
@@ -126,6 +166,21 @@ STATE = State()
 
 def parse_line(line: str):
     line = line.strip()
+    m = RE_SEL.search(line)
+    if m:
+        pred = int(m.group(5))
+        with STATE.lock:
+            STATE.sel_result = {
+                "seq": int(m.group(1)),
+                "cls": int(m.group(2)),
+                "idx": int(m.group(3)),
+                "gate": m.group(4),
+                "pred": pred,
+                "pred_name": CLASSES[pred] if 0 <= pred < len(CLASSES) else "",
+                "conf": float(m.group(6)),
+                "rms": float(m.group(7)) if m.group(7) else None,
+            }
+        return
     m = RE_WINDOW.search(line)
     if m:
         STATE.start_frame(int(m.group(1)), m.group(2),
@@ -211,6 +266,7 @@ def serial_worker(port: str | None, state: State):
             with serial.Serial(p, 115200, timeout=0.2) as ser:
                 ser.dtr = False
                 ser.rts = False
+                state.ser = ser
                 state.connected = True
                 state.source = "串口在线"
                 print(f"[serial] {p} 已打开", flush=True)
@@ -225,6 +281,7 @@ def serial_worker(port: str | None, state: State):
                     parse_line(line)
         except Exception as e:  # 掉线自动重连
             state.connected = False
+            state.ser = None
             state.source = f"串口异常: {type(e).__name__}"
             time.sleep(2)
 
@@ -282,6 +339,37 @@ class Handler(BaseHTTPRequestHandler):
             p = os.path.join(ROOT, "demo", "static", "index.html")
             with open(p, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/select"):
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                cls = int(q.get("cls", ["0"])[0])
+                idx = int(q.get("idx", ["0"])[0])
+                with STATE.lock:
+                    STATE.sel_result = {}
+                seq = STATE.next_seq()
+                frame, name, cn = build_select_frame(cls, idx, seq)
+                STATE.send_bytes(frame)
+                result = None
+                for _ in range(50):  # 最多等 5 s
+                    time.sleep(0.1)
+                    with STATE.lock:
+                        r = dict(STATE.sel_result)
+                    if r.get("seq") == seq:
+                        result = r
+                        break
+                payload = {
+                    "true_class": name,
+                    "true_cn": cn,
+                    "idx": idx,
+                    "seq": seq,
+                    "board": result,
+                    "timeout": result is None,
+                }
+                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self._send(200, body, "application/json; charset=utf-8")
+            except Exception as e:
+                body = json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8")
+                self._send(500, body, "application/json; charset=utf-8")
         elif self.path.startswith("/api/sample"):
             q = parse_qs(urlparse(self.path).query)
             try:

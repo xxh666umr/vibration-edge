@@ -34,6 +34,28 @@ extern uint8_t _eramfunc[];
 #define CLIP_I8           127.0f
 #define ADC_MEAN_CODE     2048
 
+/* ---- 选窗测试：PC 通过 USART1 下发 3×1024 原始 ADC 码 ---- */
+#define SEL_FRAME_LEN     (2 + 1 + 1 + 4 + (N_AXES * WIN_LEN * 2) + 1)  /* 6153 B */
+static uint8_t  g_rx_buf[8192];
+static volatile uint16_t g_rx_len = 0;
+static volatile uint8_t  g_sel_ready = 0;
+static volatile uint8_t  g_sel_seq = 0;
+static volatile uint8_t  g_sel_cls = 0;
+static volatile uint32_t g_sel_idx = 0;
+static int16_t  g_sel[N_AXES][WIN_LEN];
+static int8_t   g_sel_q[N_AXES * WIN_LEN];
+
+void USART1_IRQHandler(void) {
+    if ((USART1->SR & USART_SR_RXNE) != 0u) {
+        const uint8_t b = (uint8_t)USART1->DR;
+        if (g_rx_len < (uint16_t)sizeof(g_rx_buf)) {
+            g_rx_buf[g_rx_len++] = b;
+        } else {
+            g_rx_len = 0;  /* 溢出：丢弃，等下一帧 */
+        }
+    }
+}
+
 static int clock_init_72mhz(void) {
     uint32_t timeout;
     RCC->CR |= RCC_CR_HSEON;
@@ -74,7 +96,8 @@ static void usart1_init(void) {
         if (brr == 0u) brr = 1u;
         USART1->BRR = brr;
     }
-    USART1->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+    USART1->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
+    NVIC_EnableIRQ(USART1_IRQn);
 }
 
 int _write(int file, char *ptr, int len) {
@@ -235,6 +258,81 @@ static void process_window(const int16_t adc[N_AXES][WIN_LEN], const char *tag) 
     }
 }
 
+/* 解析 PC 下发的选窗帧：A5 5A | seq | cls | idx(4, LE) | 3×1024×int16 | XOR */
+static void handle_sel_frame(void) {
+    if (g_rx_len < SEL_FRAME_LEN) return;
+    const uint8_t *p = g_rx_buf;
+    if (p[0] != 0xA5u || p[1] != 0x5Au) { g_rx_len = 0; return; }
+    uint8_t crc = 0u;
+    for (uint16_t i = 2; i < (SEL_FRAME_LEN - 1); ++i) crc ^= p[i];
+    if (crc != p[SEL_FRAME_LEN - 1]) {
+        printf("[sel] bad crc\r\n");
+        g_rx_len = 0;
+        return;
+    }
+    const uint8_t *q = p + 8;
+    for (int ax = 0; ax < N_AXES; ++ax) {
+        for (int i = 0; i < WIN_LEN; ++i) {
+            const uint16_t lo = q[0];
+            const uint16_t hi = q[1];
+            g_sel[ax][i] = (int16_t)(lo | (hi << 8));
+            q += 2;
+        }
+    }
+    g_sel_seq = p[2];
+    g_sel_cls = p[3];
+    g_sel_idx = (uint32_t)p[4] | ((uint32_t)p[5] << 8) |
+                ((uint32_t)p[6] << 16) | ((uint32_t)p[7] << 24);
+    g_sel_ready = 1;
+    g_rx_len = 0;
+}
+
+/* 对选窗数据跑门限 + CNN，结果用 [sel] 行回传 */
+static void process_selected(void) {
+    const int n = N_AXES * WIN_LEN;
+    int32_t sum = 0;
+    int64_t sumsq = 0;
+    for (int ax = 0; ax < N_AXES; ++ax) {
+        for (int i = 0; i < WIN_LEN; ++i) {
+            const int32_t v = (int32_t)g_sel[ax][i] - ADC_MEAN_CODE;
+            sum += v;
+            sumsq += (int64_t)v * (int64_t)v;
+        }
+    }
+    const float mean_code = (float)sum / (float)n;
+    const float rms_raw = sqrtf((float)((double)sumsq / (double)n));
+    double var = 0.0;
+    for (int ax = 0; ax < N_AXES; ++ax) {
+        for (int i = 0; i < WIN_LEN; ++i) {
+            const double d = (double)((int32_t)g_sel[ax][i] - ADC_MEAN_CODE) - (double)mean_code;
+            var += d * d;
+        }
+    }
+    const float rms_ac = sqrtf((float)(var / (double)n));
+    const float rms_units = rms_ac * (VREF / 4095.0f) / GAIN;
+    if (rms_units < GATE_THR_UNITS) {
+        printf("[sel] seq=%u cls=%u idx=%lu gate=idling pred=-1 conf=0.0000 rms=%.4f\r\n",
+               (unsigned)g_sel_seq, (unsigned)g_sel_cls, (unsigned long)g_sel_idx,
+               (double)rms_units);
+        return;
+    }
+    const float factor = 1.0f / (rms_raw * INPUT_SCALE);
+    for (int ax = 0; ax < N_AXES; ++ax) {
+        for (int i = 0; i < WIN_LEN; ++i) {
+            float xn = (((float)g_sel[ax][i] - (float)ADC_MEAN_CODE) - mean_code) * factor;
+            if (xn > CLIP_I8) xn = CLIP_I8;
+            else if (xn < -CLIP_I8) xn = -CLIP_I8;
+            int32_t qv = (int32_t)(xn + (xn >= 0.0f ? 0.5f : -0.5f));
+            if (qv > 127) qv = 127; else if (qv < -128) qv = -128;
+            g_net[ax * WIN_LEN + i] = (int8_t)qv;
+        }
+    }
+    int pred = (int)model_forward(g_net, g_probs);
+    printf("[sel] seq=%u cls=%u idx=%lu gate=wear pred=%d conf=%.4f rms=%.4f\r\n",
+           (unsigned)g_sel_seq, (unsigned)g_sel_cls, (unsigned long)g_sel_idx,
+           pred, (double)g_probs[pred], (double)rms_units);
+}
+
 int main(void) {
     (void)clock_init_72mhz();
     usart1_init();
@@ -256,6 +354,8 @@ int main(void) {
 
     int cls = 0;
     for (;;) {
+        if (g_rx_len >= SEL_FRAME_LEN) handle_sel_frame();
+        if (g_sel_ready) { process_selected(); g_sel_ready = 0; }
         printf("\r\n--- window: replay class %d (%s) idx=%d ---\r\n", cls, REPLAY_NAME[cls], REPLAY_IDX[cls]);
         const uint32_t acq = acquire_window(cls);
         printf("[acq  ] %u cycles (%.1f ms), 3 axes x 1024, adc_timeouts=0\r\n", (unsigned)acq,
