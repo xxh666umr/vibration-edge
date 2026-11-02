@@ -132,7 +132,7 @@ class State:
         self.sel_seq = 0
         self.sel_result = {}
         self.auto_enabled = False
-        self.auto_stats = {"tested": 0, "correct": 0}
+        self.auto_stats = {"tested": 0, "correct": 0, "idle": 0, "wear": 0}
         self.auto_last = {}
         self.auto_history = []
         self.auto_lock = threading.Lock()
@@ -188,6 +188,8 @@ class State:
                     "enabled": self.auto_enabled,
                     "tested": self.auto_stats["tested"],
                     "correct": self.auto_stats["correct"],
+                    "idle": self.auto_stats["idle"],
+                    "wear": self.auto_stats["wear"],
                     "last": self.auto_last,
                     "history": self.auto_history,
                 },
@@ -415,6 +417,10 @@ def auto_worker(state: State):
                        (cls > 0 and result["gate"] == "wear" and result["pred"] == cls - 1))
             with state.lock:
                 state.auto_stats["tested"] += 1
+                if cls == 0:
+                    state.auto_stats["idle"] += 1
+                else:
+                    state.auto_stats["wear"] += 1
                 if correct:
                     state.auto_stats["correct"] += 1
                 state.auto_last = {
@@ -517,8 +523,9 @@ class Handler(BaseHTTPRequestHandler):
             with STATE.lock:
                 STATE.auto_enabled = on
                 if reset:
-                    STATE.auto_stats = {"tested": 0, "correct": 0}
+                    STATE.auto_stats = {"tested": 0, "correct": 0, "idle": 0, "wear": 0}
                     STATE.auto_last = {}
+                    STATE.auto_history = []
             body = json.dumps({"enabled": on,
                                "tested": STATE.auto_stats["tested"],
                                "correct": STATE.auto_stats["correct"]},
