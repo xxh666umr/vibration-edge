@@ -115,7 +115,7 @@ RE_REPLAY_PRED = re.compile(r"wear, pred=(\d+) \((\w+)\)")
 RE_INFER = re.compile(r"infer=(?:(\d+) cycles \()?([\d.]+) ms\)?")
 RE_PROB = re.compile(r"class (\d+) \((\w+)\): ([\d.]+)")
 RE_WINS = re.compile(r"\[window\] acq ([\d.]+) ms \+ infer ([\d.]+) ms = ([\d.]+) ms/decision")
-RE_SEL = re.compile(r"\[sel\] seq=(\d+) cls=(\d+) idx=(\d+) gate=(\w+) pred=(-?\d+) conf=([\d.]+)(?: rms=([\d.]+))?")
+RE_SEL = re.compile(r"\[sel\] seq=(\d+) cls=(\d+) idx=(\d+) gate=(\w+) pred=(-?\d+) conf=([\d.]+)(?: rms=([\d.]+))?(?: p0=([\d.]+) p1=([\d.]+) p2=([\d.]+))?")
 
 
 class State:
@@ -213,6 +213,9 @@ def parse_line(line: str):
     m = RE_SEL.search(line)
     if m:
         pred = int(m.group(5))
+        probs = []
+        if m.group(8) is not None:
+            probs = [float(m.group(8)), float(m.group(9)), float(m.group(10))]
         with STATE.lock:
             STATE.sel_result = {
                 "seq": int(m.group(1)),
@@ -223,6 +226,7 @@ def parse_line(line: str):
                 "pred_name": CLASSES[pred] if 0 <= pred < len(CLASSES) else "",
                 "conf": float(m.group(6)),
                 "rms": float(m.group(7)) if m.group(7) else None,
+                "probs": probs,
             }
         return
     m = RE_WINDOW.search(line)

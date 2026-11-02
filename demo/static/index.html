@@ -82,6 +82,8 @@
     <div class="row"><span class="muted">第几窗</span><b id="autoIdx">—</b></div>
     <div class="row"><span class="muted">置信度</span><b id="autoConf">—</b></div>
     <div class="row"><span class="muted">门限</span><b id="autoGate">—</b></div>
+    <div class="label" style="margin-top:12px">门限 + 3 类概率（板端 int8 输出）</div>
+    <div class="bars" id="autoProbs"></div>
   </div>
 
   <div class="card">
@@ -262,6 +264,7 @@ function render(s){
   const ms = document.getElementById("modelSel");
   if(ms && !document.getElementById("modelBtn").disabled && !modelSelDirty) ms.value = s.model || "cnn";
   if(s.switching) setText("modelStatus", "正在烧录，请稍候…");
+  else setText("modelStatus", s.connected ? ("串口已连接 · 当前模型 " + (s.model === "transformer" ? "Transformer tiny" : "CNN v3")) : "串口未连接");
   renderAuto(s.auto || {});
   renderAutoHistory((s.auto || {}).history || []);
 }
@@ -351,6 +354,22 @@ function drawCurrentSample(frame){
 let autoEnabled = false;
 let modelSelDirty = false;
 
+function renderAutoProbs(b){
+  const box = document.getElementById("autoProbs");
+  if(!box) return;
+  const idle = b.gate === "idling";
+  const p = b.probs || [];
+  const rows = [
+    {name:"idling（空闲，RMS 门限）", pct: idle ? 100 : 0, cls:"idle"},
+    ...CLASSES.map((c,i) => ({name:c + " · " + (CN[c]||""), pct: (p[i] || 0) * 100, cls:""})),
+  ];
+  box.innerHTML = rows.map(r => `
+    <div class="bar ${r.cls}">
+      <div class="top"><span>${r.name}</span><span>${r.pct.toFixed(1)}%</span></div>
+      <div class="track"><div class="fill" style="width:${r.pct.toFixed(1)}%"></div></div>
+    </div>`).join("");
+}
+
 function renderAuto(auto){
   if(!auto) auto = {};
   const btn = document.getElementById("autoBtn");
@@ -373,6 +392,7 @@ function renderAuto(auto){
   setText("autoIdx", String(last.idx));
   setText("autoConf", b.gate === "idling" ? "—" : ((Number(b.conf) * 100).toFixed(1) + "%"));
   setText("autoGate", b.gate || "—");
+  renderAutoProbs(b);
   const order = ["idling", "initial_wear", "steady_wear", "accelerating_wear"];
   const ci = Math.max(0, order.indexOf(last.true_class));
   drawSample({wave:last.wave, class:ci, class_cn:last.true_cn, index:last.idx}, "autoWaveCanvas");

@@ -311,7 +311,7 @@ static void process_selected(void) {
     const float rms_ac = sqrtf((float)(var / (double)n));
     const float rms_units = rms_ac * (VREF / 4095.0f) / GAIN;
     if (rms_units < GATE_THR_UNITS) {
-        printf("[sel] seq=%u cls=%u idx=%lu gate=idling pred=-1 conf=0.0000 rms=%.4f\r\n",
+        printf("[sel] seq=%u cls=%u idx=%lu gate=idling pred=-1 conf=0.0000 rms=%.4f p0=0.0000 p1=0.0000 p2=0.0000\r\n",
                (unsigned)g_sel_seq, (unsigned)g_sel_cls, (unsigned long)g_sel_idx,
                (double)rms_units);
         return;
@@ -328,9 +328,10 @@ static void process_selected(void) {
         }
     }
     int pred = (int)model_forward(g_net, g_probs);
-    printf("[sel] seq=%u cls=%u idx=%lu gate=wear pred=%d conf=%.4f rms=%.4f\r\n",
+    printf("[sel] seq=%u cls=%u idx=%lu gate=wear pred=%d conf=%.4f rms=%.4f p0=%.4f p1=%.4f p2=%.4f\r\n",
            (unsigned)g_sel_seq, (unsigned)g_sel_cls, (unsigned long)g_sel_idx,
-           pred, (double)g_probs[pred], (double)rms_units);
+           pred, (double)g_probs[pred], (double)rms_units,
+           (double)g_probs[0], (double)g_probs[1], (double)g_probs[2]);
 }
 
 int main(void) {
