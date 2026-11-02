@@ -84,6 +84,9 @@
     <div class="row"><span class="muted">门限</span><b id="autoGate">—</b></div>
     <div class="label" style="margin-top:12px">门限 + 3 类概率（板端 int8 输出）</div>
     <div class="bars" id="autoProbs"></div>
+    <div class="row"><span class="muted">空闲判定</span><span>三轴联合 AC-RMS &lt; 0.020（单轴 &lt; 0.006）→ 空闲</span></div>
+    <div class="row"><span class="muted">空闲时</span><span>不跑 CNN，三个磨损类概率置 0%</span></div>
+    <div class="row"><span class="muted">磨损时</span><span>三轴归一化 → int8 CNN，输出三类概率</span></div>
   </div>
 
   <div class="card">
@@ -392,8 +395,8 @@ function renderAutoProbs(b){
   const idle = b.gate === "idling";
   const p = b.probs || [];
   const rows = [
-    {name:"idling（空闲，RMS 门限）", pct: idle ? 100 : 0, cls:"idle"},
     ...CLASSES.map((c,i) => ({name:c + " · " + (CN[c]||""), pct: (p[i] || 0) * 100, cls:""})),
+    {name:"idling（空闲，RMS 门限）", pct: idle ? 100 : 0, cls:"idle"},
   ];
   box.innerHTML = rows.map(r => `
     <div class="bar ${r.cls}">
