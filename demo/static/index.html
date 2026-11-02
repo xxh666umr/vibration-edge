@@ -115,6 +115,15 @@
 </div>
 
 <div class="card" style="margin-top:14px">
+  <div class="label">采样波形（板端 ADC X 轴，100 ms；DAC 固定 4 段回放 → ADC）</div>
+  <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:12px;align-items:end">
+    <canvas id="adcWaveCanvas" height="180" style="width:100%;height:180px"></canvas>
+    <canvas id="adcSpecCanvas" height="180" style="width:100%;height:180px"></canvas>
+  </div>
+  <div class="row"><span class="muted">板端实际采样波形 / 频谱（0~1.28 kHz 降采样示意）</span><span id="adcWaveInfo" class="muted">—</span></div>
+</div>
+
+<div class="card" style="margin-top:14px">
   <div class="label">随机测试记录（最近 30 窗）</div>
   <table>
     <thead><tr><th>时间</th><th>真实标签</th><th>窗号</th><th>板端预测</th><th>置信度</th><th>门限</th></tr></thead>
@@ -189,8 +198,8 @@ function _xlabels(ctx, L, W, h, labels){
   }
 }
 
-function drawWave(wave){
-  const c = _canvas("waveCanvas"); if(!c) return;
+function drawWave(wave, canvasId){
+  const c = _canvas(canvasId || "waveCanvas"); if(!c) return;
   const {ctx, w, h} = c;
   const L = 42, R = 12, T = 36, B = 40;
   const {W, H} = _frame(ctx, w, h, L, R, T, B);
@@ -265,6 +274,13 @@ function render(s){
   if(ms && !document.getElementById("modelBtn").disabled && !modelSelDirty) ms.value = s.model || "cnn";
   if(s.switching) setText("modelStatus", "正在烧录，请稍候…");
   else setText("modelStatus", s.connected ? ("串口已连接 · 当前模型 " + (s.model === "transformer" ? "Transformer tiny" : "CNN v3")) : "串口未连接");
+  const f = s.last || {};
+  const adcWave = f.wave || [];
+  drawWave(adcWave, "adcWaveCanvas");
+  drawSpectrum(adcWave, "adcSpecCanvas");
+  setText("adcWaveInfo", adcWave.length
+    ? ((f.replay_class || "—") + (f.replay_win != null ? (" · 第 " + f.replay_win + " 窗") : "") + " · 256 pts")
+    : "等待采样波形");
   renderAuto(s.auto || {});
   renderAutoHistory((s.auto || {}).history || []);
 }
