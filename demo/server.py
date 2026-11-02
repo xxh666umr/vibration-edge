@@ -138,6 +138,7 @@ class State:
         self.auto_lock = threading.Lock()
         self.model = "cnn"
         self.switching = False
+        self.model_lock_until = 0.0
 
     def start_frame(self, cls_idx, cls_name, replay_idx=None):
         with self.lock:
@@ -199,12 +200,16 @@ STATE = State()
 def parse_line(line: str):
     line = line.strip()
     low = line.lower()
-    if "tiny_transformer" in low or ("transformer" in low and "model" in low):
-        with STATE.lock:
-            STATE.model = "transformer"
-    elif "vib_cnn" in low:
-        with STATE.lock:
-            STATE.model = "cnn"
+    now = time.time()
+    with STATE.lock:
+        locked = now < STATE.model_lock_until
+    if not locked:
+        if "tiny_transformer" in low or ("transformer" in low and "model" in low):
+            with STATE.lock:
+                STATE.model = "transformer"
+        elif "vib_cnn" in low:
+            with STATE.lock:
+                STATE.model = "cnn"
     m = RE_SEL.search(line)
     if m:
         pred = int(m.group(5))
@@ -305,6 +310,10 @@ def serial_worker(port: str | None, state: State):
             with serial.Serial(p, 115200, timeout=0.2) as ser:
                 ser.dtr = False
                 ser.rts = False
+                try:
+                    ser.reset_input_buffer()
+                except Exception:
+                    pass
                 state.ser = ser
                 state.connected = True
                 state.source = "串口在线"
@@ -455,6 +464,7 @@ def flash_firmware(state: State, name: str):
             state.ser = None
         state.connected = False
         state.model = name
+        state.model_lock_until = time.time() + 10.0
     return info["label"]
 
 
