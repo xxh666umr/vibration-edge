@@ -44,9 +44,16 @@ OPENOCD = os.environ.get(
     "OPENOCD",
     r"C:\Users\lenovo\AppData\Local\Microsoft\WinGet\Packages\xpack-dev-tools.openocd-xpack_Microsoft.Winget.Source_8wekyb3d8bbwe\xpack-openocd-0.12.0-7\bin\openocd.exe")
 FIRMWARES = {
-    "cnn": {"label": "CNN v3", "elf": os.path.join(ROOT, "firmware_xyz_relabel", "build", "firmware.elf")},
-    "transformer": {"label": "Transformer tiny",
-                    "elf": os.path.join(ROOT, "firmware_variants", "xyz_transformer", "build", "firmware.elf")},
+    "cnn_single": {"label": "CNN 单轴 · 8,435 参数",
+                   "elf": os.path.join(ROOT, "firmware", "build", "firmware.elf")},
+    "cnn_xyz": {"label": "CNN 三轴 · 10,483 参数",
+                "elf": os.path.join(ROOT, "firmware_xyz_relabel", "build", "firmware.elf")},
+    "tf_t8": {"label": "Transformer 8 token · 5,523 参数",
+              "elf": os.path.join(ROOT, "firmware_variants", "xyz_transformer_t8", "build", "firmware.elf")},
+    "tf_t16": {"label": "Transformer 16 token · 5,651 参数",
+               "elf": os.path.join(ROOT, "firmware_variants", "xyz_transformer_t16", "build", "firmware.elf")},
+    "tf_t31": {"label": "Transformer 31 token · 5,891 参数",
+               "elf": os.path.join(ROOT, "firmware_variants", "xyz_transformer_t31", "build", "firmware.elf")},
 }
 
 
@@ -136,7 +143,7 @@ class State:
         self.auto_last = {}
         self.auto_history = []
         self.auto_lock = threading.Lock()
-        self.model = "cnn"
+        self.model = "cnn_xyz"
         self.switching = False
         self.model_lock_until = 0.0
 
@@ -206,12 +213,21 @@ def parse_line(line: str):
     with STATE.lock:
         locked = now < STATE.model_lock_until
     if not locked:
-        if "tiny_transformer" in low or ("transformer" in low and "model" in low):
+        if "tiny_transformer_t8" in low:
             with STATE.lock:
-                STATE.model = "transformer"
+                STATE.model = "tf_t8"
+        elif "tiny_transformer_t16" in low:
+            with STATE.lock:
+                STATE.model = "tf_t16"
+        elif "tiny_transformer_t31" in low or "tiny_transformer_d16" in low or "transformer" in low:
+            with STATE.lock:
+                STATE.model = "tf_t31"
+        elif "vib_cnn_gate3_relabel" in low:
+            with STATE.lock:
+                STATE.model = "cnn_xyz"
         elif "vib_cnn" in low:
             with STATE.lock:
-                STATE.model = "cnn"
+                STATE.model = "cnn_single"
     m = RE_SEL.search(line)
     if m:
         pred = int(m.group(5))

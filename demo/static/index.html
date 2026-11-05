@@ -108,8 +108,11 @@
     <div class="row"><span class="muted">回放链路</span><span>DAC PA4 → ADC PA0</span></div>
     <div class="row"><span class="muted">切换模型</span><span style="display:flex;gap:6px;align-items:center">
       <select id="modelSel">
-        <option value="cnn">CNN v3</option>
-        <option value="transformer">Transformer tiny</option>
+        <option value="cnn_single">CNN 单轴 · 8,435 参数</option>
+        <option value="cnn_xyz" selected>CNN 三轴 · 10,483 参数</option>
+        <option value="tf_t8">Transformer 8 token · 5,523 参数</option>
+        <option value="tf_t16">Transformer 16 token · 5,651 参数</option>
+        <option value="tf_t31">Transformer 31 token · 5,891 参数</option>
       </select>
       <button class="btn" id="modelBtn">切换（重烧）</button>
     </span></div>
@@ -149,6 +152,13 @@
 <script>
 const CN = {idling:"空闲", initial_wear:"初期磨损", steady_wear:"稳定磨损", accelerating_wear:"加速磨损"};
 const CLASSES = ["initial_wear","steady_wear","accelerating_wear"];
+const MODEL_META = {
+  cnn_single: {label:"CNN 单轴", size:"8,435 params · int8", infer:"≈117 ms/窗"},
+  cnn_xyz:    {label:"CNN 三轴", size:"10,483 params · int8", infer:"31.4 ms/窗"},
+  tf_t8:      {label:"Transformer 8 token", size:"5,523 params · int8", infer:"≈15 ms/窗"},
+  tf_t16:     {label:"Transformer 16 token", size:"5,651 params · int8", infer:"≈30 ms/窗"},
+  tf_t31:     {label:"Transformer 31 token", size:"5,891 params · int8", infer:"57.8 ms/窗"},
+};
 let hist = [];
 
 function setText(id, v){ const e = document.getElementById(id); if(e) e.textContent = v; }
@@ -282,17 +292,18 @@ function render(s){
   setText("source", s.source || "—");
   setText("frames", s.frames || 0);
   setText("time", s.time || "—");
-  setText("modelLabel", s.model === "transformer" ? "Transformer tiny" : "CNN v3");
-  setText("modelSize", s.model === "transformer" ? "5,523 params · float" : "10,483 params · int8");
-  setText("modelInfer", s.model === "transformer" ? "57.8 ms/窗" : "31.4 ms/窗");
+  const meta = MODEL_META[s.model] || MODEL_META.cnn_xyz;
+  setText("modelLabel", meta.label);
+  setText("modelSize", meta.size);
+  setText("modelInfer", meta.infer);
   const lf = s.last || {};
   setText("acq", lf.acq_ms != null ? Number(lf.acq_ms).toFixed(1) : "—");
   setText("inf", lf.infer_ms != null ? Number(lf.infer_ms).toFixed(2) : "—");
   setText("tot", lf.total_ms != null ? Number(lf.total_ms).toFixed(1) : "—");
   const ms = document.getElementById("modelSel");
-  if(ms && !document.getElementById("modelBtn").disabled && !modelSelDirty) ms.value = s.model || "cnn";
+  if(ms && !document.getElementById("modelBtn").disabled && !modelSelDirty) ms.value = s.model || "cnn_xyz";
   if(s.switching) setText("modelStatus", "正在烧录，请稍候…");
-  else setText("modelStatus", s.connected ? ("串口已连接 · 当前模型 " + (s.model === "transformer" ? "Transformer tiny" : "CNN v3")) : "串口未连接");
+  else setText("modelStatus", s.connected ? ("串口已连接 · 当前模型 " + meta.label) : "串口未连接");
   const f = s.last || {};
   const adcWave = f.wave || [];
   drawWave(adcWave, "adcWaveCanvas");
@@ -448,8 +459,9 @@ document.getElementById("autoBtn").addEventListener("click", toggleAuto);
 async function switchModel(){
   const name = document.getElementById("modelSel").value;
   const btn = document.getElementById("modelBtn");
+  const label = (MODEL_META[name] || {}).label || name;
   btn.disabled = true;
-  setText("modelStatus", "正在烧录 " + (name === "transformer" ? "Transformer" : "CNN") + "，约 10~20 秒…");
+  setText("modelStatus", "正在烧录 " + label + "，约 10~20 秒…");
   try{
     const r = await fetch("/api/model?name=" + encodeURIComponent(name), {cache:"no-store"});
     const d = await r.json();
