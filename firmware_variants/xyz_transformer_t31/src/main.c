@@ -361,6 +361,11 @@ int main(void) {
         const uint32_t acq = acquire_window(cls);
         printf("[acq  ] %u cycles (%.1f ms), 3 axes x 1024, adc_timeouts=0\r\n", (unsigned)acq,
                (double)((float)acq * 1000.0f / (float)SystemCoreClock));
+        printf("[wave]");
+        for (int i = 0; i < WIN_LEN; i += 4) {
+            printf(" %d", (int)g_adc[0][i]);
+        }
+        printf("\r\n");
         process_window((const int16_t (*)[WIN_LEN])g_adc, "adc  ");
         process_window((const int16_t (*)[WIN_LEN])REPLAY_XYZ[cls], "replay");
         printf("[window] acq %.1f ms + infer %.2f ms = %.1f ms/decision (3-axis)\r\n",

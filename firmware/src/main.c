@@ -397,6 +397,11 @@ int main(void) {
         printf("[acq  ] %u cycles (%.2f ms), 1024 samples @ %u Hz, adc_timeouts=%u\r\n",
                (unsigned)acq, (double)((float)acq * 1000.0f / (float)SystemCoreClock),
                (unsigned)SAMPLE_RATE, (unsigned)g_adc_timeouts);
+        printf("[wave]");
+        for (int i = 0; i < WIN_LEN; i += 4) {
+            printf(" %d", (int)adc_buf[i]);
+        }
+        printf("\r\n");
         process_window(adc_buf, "adc  ", 0);
         process_window(REPLAY_DAC[cls], "replay", 1);
         printf("[window] acq %.1f ms + infer %.2f ms = %.1f ms/decision (window 100 ms)\r\n",
