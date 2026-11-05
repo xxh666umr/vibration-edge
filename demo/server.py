@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import datetime
 import json
 import os
 import re
@@ -43,6 +45,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OPENOCD = os.environ.get(
     "OPENOCD",
     r"C:\Users\lenovo\AppData\Local\Microsoft\WinGet\Packages\xpack-dev-tools.openocd-xpack_Microsoft.Winget.Source_8wekyb3d8bbwe\xpack-openocd-0.12.0-7\bin\openocd.exe")
+SESSIONS_DIR = os.path.join(ROOT, "results", "sessions")
+
 FIRMWARES = {
     "cnn_single": {"label": "CNN 单轴 · 8,435 参数",
                    "elf": os.path.join(ROOT, "firmware", "build", "firmware.elf")},
@@ -144,6 +148,8 @@ class State:
         self.auto_history = []
         self.auto_lock = threading.Lock()
         self.model = "cnn_xyz"
+        self.session = {"active": False, "id": "", "start": "",
+                        "model": self.model, "rows": [], "file": ""}
         self.switching = False
         self.model_lock_until = 0.0
 
@@ -177,6 +183,55 @@ class State:
             self.ser.write(data)
             self.ser.flush()
 
+    def start_session(self):
+        with self.lock:
+            now = datetime.datetime.now()
+            self.session = {
+                "active": True,
+                "id": now.strftime("%Y%m%d_%H%M%S"),
+                "start": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "model": self.model,
+                "rows": [],
+                "file": "",
+            }
+
+    def append_session(self, row):
+        with self.lock:
+            if self.session.get("active"):
+                self.session["rows"].append(row)
+
+    def stop_session(self):
+        with self.lock:
+            s = self.session
+            if not s.get("active"):
+                return s.get("file") or ""
+            rows = list(s.get("rows") or [])
+            sid = s.get("id") or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            start = s.get("start") or ""
+            model = s.get("model") or self.model
+            s["active"] = False
+        os.makedirs(SESSIONS_DIR, exist_ok=True)
+        path = os.path.join(SESSIONS_DIR, f"vib_session_{sid}.csv")
+        n = 1
+        while os.path.exists(path):
+            path = os.path.join(SESSIONS_DIR, f"vib_session_{sid}_{n}.csv")
+            n += 1
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            w.writerow(["session", "start", "model", "time", "true_class", "true_cn",
+                        "window_idx", "gate", "board_pred", "confidence",
+                        "rms", "ac_rms", "p0", "p1", "p2"])
+            for r in rows:
+                b = r.get("board") or {}
+                probs = b.get("probs") or [0.0, 0.0, 0.0]
+                w.writerow([sid, start, model, r.get("t", ""), r.get("true_class", ""),
+                            r.get("true_cn", ""), r.get("idx", ""), b.get("gate", ""),
+                            b.get("pred_name", ""), b.get("conf", ""), b.get("rms", ""),
+                            r.get("ac_rms", ""), probs[0], probs[1], probs[2]])
+        with self.lock:
+            self.session["file"] = path
+        return path
+
     def snapshot(self):
         with self.lock:
             return {
@@ -199,6 +254,16 @@ class State:
                     "wear": self.auto_stats["wear"],
                     "last": self.auto_last,
                     "history": self.auto_history,
+                },
+                "session": {
+                    "active": self.session.get("active", False),
+                    "id": self.session.get("id", ""),
+                    "start": self.session.get("start", ""),
+                    "model": self.session.get("model", ""),
+                    "count": len(self.session.get("rows") or []),
+                    "file": os.path.basename(self.session.get("file") or ""),
+                    "download": "/api/session/download" if self.session.get("file") else "",
+                    "rows": (self.session.get("rows") or [])[-300:],
                 },
             }
 
@@ -459,12 +524,14 @@ def auto_worker(state: State):
                     "wave": [round(float(v), 5) for v in x[::4]],
                     "board": result, "correct": correct,
                 }
-                state.auto_history.insert(0, {
+                item = {
                     "t": time.strftime("%H:%M:%S"),
                     "true_class": name, "true_cn": cn, "idx": idx,
-                    "board": result, "correct": correct,
-                })
+                    "ac_rms": ac_rms, "board": result, "correct": correct,
+                }
+                state.auto_history.insert(0, item)
                 del state.auto_history[30:]
+            state.append_session(item)
             time.sleep(0.15)
         except Exception as e:
             with state.lock:
@@ -539,6 +606,7 @@ class Handler(BaseHTTPRequestHandler):
                 STATE.switching = True
                 STATE.auto_enabled = False
                 STATE.auto_last = {}
+                STATE.stop_session()
                 try:
                     label = flash_firmware(STATE, name)
                     body = json.dumps({"ok": True, "model": name, "label": label},
@@ -553,17 +621,44 @@ class Handler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             on = q.get("on", ["0"])[0] in ("1", "true", "on")
             reset = q.get("reset", ["0"])[0] in ("1", "true")
-            with STATE.lock:
-                STATE.auto_enabled = on
-                if reset:
-                    STATE.auto_stats = {"tested": 0, "correct": 0, "idle": 0, "wear": 0}
-                    STATE.auto_last = {}
-                    STATE.auto_history = []
+            file_path = ""
+            if on:
+                if reset and STATE.session.get("active"):
+                    STATE.stop_session()
+                if reset or not STATE.session.get("active"):
+                    STATE.start_session()
+                with STATE.lock:
+                    STATE.auto_enabled = True
+                    if reset:
+                        STATE.auto_stats = {"tested": 0, "correct": 0, "idle": 0, "wear": 0}
+                        STATE.auto_last = {}
+                        STATE.auto_history = []
+            else:
+                with STATE.lock:
+                    STATE.auto_enabled = False
+                file_path = STATE.stop_session()
             body = json.dumps({"enabled": on,
                                "tested": STATE.auto_stats["tested"],
-                               "correct": STATE.auto_stats["correct"]},
+                               "correct": STATE.auto_stats["correct"],
+                               "session_active": STATE.session.get("active", False),
+                               "session_file": os.path.basename(file_path) if file_path else os.path.basename(STATE.session.get("file") or "")},
                               ensure_ascii=False).encode("utf-8")
             self._send(200, body, "application/json; charset=utf-8")
+        elif self.path.startswith("/api/session/download"):
+            with STATE.lock:
+                path = STATE.session.get("file") or ""
+            if path and os.path.isfile(path):
+                with open(path, "rb") as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{os.path.basename(path)}"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self._send(404, b"no session file", "text/plain")
         elif self.path.startswith("/api/select"):
             q = parse_qs(urlparse(self.path).query)
             try:

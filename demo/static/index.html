@@ -140,10 +140,14 @@
 </div>
 
 <div class="card" style="margin-top:14px">
-  <div class="label">随机测试记录（最近 30 窗）</div>
+  <div class="label">本轮测试记录（点开始后逐窗追加，停止后生成 CSV）</div>
+  <div class="row">
+    <span id="sessionInfo" class="muted">未开始</span>
+    <a id="sessionDl" class="toplink" href="/api/session/download" style="display:none">下载本轮 CSV</a>
+  </div>
   <table>
     <thead><tr><th>时间</th><th>真实标签</th><th>窗号</th><th>板端预测</th><th>置信度</th><th>门限</th></tr></thead>
-    <tbody id="autoHist"><tr><td colspan="6" class="muted">等待随机测试…</td></tr></tbody>
+    <tbody id="autoHist"><tr><td colspan="6" class="muted">等待开始新一轮测试…</td></tr></tbody>
   </table>
 </div>
 
@@ -312,19 +316,40 @@ function render(s){
     ? ((f.replay_class || "—") + (f.replay_win != null ? (" · 第 " + f.replay_win + " 窗") : "") + " · 256 pts")
     : "等待采样波形");
   renderAuto(s.auto || {}, s.switching);
-  renderAutoHistory((s.auto || {}).history || []);
+  renderSession(s.session || {});
 }
 
-function renderAutoHistory(h){
+function renderSession(sess){
   const tb = document.getElementById("autoHist");
+  const info = document.getElementById("sessionInfo");
+  const dl = document.getElementById("sessionDl");
   if(!tb) return;
-  if(!h.length){ tb.innerHTML = '<tr><td colspan="6" class="muted">等待随机测试…</td></tr>'; return; }
-  tb.innerHTML = h.map(x => {
+  const rows = sess.rows || [];
+  const meta = MODEL_META[sess.model] || {};
+  if(sess.active){
+    setText("sessionInfo", "本轮进行中 · 已测 " + (sess.count || 0) + " 窗 · 模型 " + (meta.label || sess.model || "—"));
+  }else if(sess.count){
+    setText("sessionInfo", "本轮已结束 · 共 " + sess.count + " 窗 · 文件 " + (sess.file || "—"));
+  }else{
+    setText("sessionInfo", "未开始");
+  }
+  if(dl){
+    if(sess.download){ dl.style.display = "inline-block"; dl.href = sess.download; }
+    else dl.style.display = "none";
+  }
+  if(!rows.length){
+    tb.innerHTML = '<tr><td colspan="6" class="muted">等待开始新一轮测试…</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.slice().reverse().map(x => {
     const b = x.board || {};
     const pred = b.gate === "idling" ? "空闲（门限）" : ((b.pred_name || "?") + " · " + (CN[b.pred_name] || ""));
     const conf = b.gate === "idling" ? "—" : ((Number(b.conf) * 100).toFixed(1) + "%");
     return `<tr><td>${x.t}</td><td>${x.true_class} · ${x.true_cn}</td><td>${x.idx}</td><td>${pred}</td><td>${conf}</td><td>${b.gate || "—"}</td></tr>`;
   }).join("");
+  if((sess.count || 0) > rows.length){
+    tb.innerHTML += `<tr><td colspan="6" class="muted">仅显示最近 ${rows.length} 行，完整 ${sess.count} 行见 CSV</td></tr>`;
+  }
 }
 
 let sampleCls = 0;
@@ -427,7 +452,7 @@ function renderAuto(auto, switching){
   btn.disabled = false;
   const on = !!auto.enabled;
   autoEnabled = on;
-  btn.textContent = on ? "停止随机测试" : "开始随机测试";
+  btn.textContent = on ? "停止本轮测试" : "开始新一轮测试";
   btn.classList.toggle("active", on);
   setText("autoStatus", on ? "运行中：server 正在随机抽窗" : "未开始");
   setText("autoTested", String(auto.tested || 0));
