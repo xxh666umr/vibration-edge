@@ -311,7 +311,7 @@ function render(s){
   setText("adcWaveInfo", adcWave.length
     ? ((f.replay_class || "—") + (f.replay_win != null ? (" · 第 " + f.replay_win + " 窗") : "") + " · 256 pts")
     : "等待采样波形");
-  renderAuto(s.auto || {});
+  renderAuto(s.auto || {}, s.switching);
   renderAutoHistory((s.auto || {}).history || []);
 }
 
@@ -416,9 +416,15 @@ function renderAutoProbs(b){
     </div>`).join("");
 }
 
-function renderAuto(auto){
+function renderAuto(auto, switching){
   if(!auto) auto = {};
   const btn = document.getElementById("autoBtn");
+  if(switching){
+    btn.disabled = true;
+    setText("autoStatus", "模型切换中，随机测试暂停");
+    return;
+  }
+  btn.disabled = false;
   const on = !!auto.enabled;
   autoEnabled = on;
   btn.textContent = on ? "停止随机测试" : "开始随机测试";

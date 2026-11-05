@@ -341,8 +341,13 @@ def serial_worker(port: str | None, state: State):
                 state.source = "串口在线"
                 print(f"[serial] {p} 已打开", flush=True)
                 while True:
+                    # 烧录模型时服务端会主动关闭串口，这里检测到后立即重连
+                    if (not ser.is_open) or (state.ser is not ser):
+                        raise serial.SerialException("serial closed for model switch")
                     raw = ser.readline()
                     if not raw:
+                        if (not ser.is_open) or (state.ser is not ser):
+                            raise serial.SerialException("serial closed for model switch")
                         continue
                     try:
                         line = raw.decode("utf-8", errors="ignore")
@@ -350,9 +355,18 @@ def serial_worker(port: str | None, state: State):
                         continue
                     parse_line(line)
         except Exception as e:  # 掉线自动重连
-            state.connected = False
-            state.ser = None
-            state.source = f"串口异常: {type(e).__name__}"
+            with state.lock:
+                if state.ser is not None:
+                    try:
+                        state.ser.close()
+                    except Exception:
+                        pass
+                state.ser = None
+                state.connected = False
+                if state.switching or time.time() < state.model_lock_until:
+                    state.source = "模型切换中，串口暂停"
+                else:
+                    state.source = f"串口异常: {type(e).__name__}"
             time.sleep(2)
 
 
@@ -475,6 +489,8 @@ def flash_firmware(state: State, name: str):
            "-c", "reset run",
            "-c", "exit"]
     state.connected = False
+    with state.lock:
+        state.source = "模型切换中，串口暂停"
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
     out = (p.stdout or "") + "\n" + (p.stderr or "")
     if "Verified OK" not in out:
@@ -522,6 +538,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 STATE.switching = True
                 STATE.auto_enabled = False
+                STATE.auto_last = {}
                 try:
                     label = flash_firmware(STATE, name)
                     body = json.dumps({"ok": True, "model": name, "label": label},
