@@ -13,3 +13,6 @@ data/*.npy
 data/*.parquet
 # 编辑器
 .idea/
+
+# session CSV results
+results/

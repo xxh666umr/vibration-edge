@@ -21,6 +21,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -539,6 +541,18 @@ def auto_worker(state: State):
             time.sleep(1.0)
 
 
+def _drop_serial(state: State):
+    """关闭当前串口句柄，让 serial_worker 重新打开（切换成功/失败都要恢复在线）。"""
+    with state.lock:
+        if state.ser is not None:
+            try:
+                state.ser.close()
+            except Exception:
+                pass
+            state.ser = None
+        state.connected = False
+
+
 def flash_firmware(state: State, name: str):
     """通过 OpenOCD + DAP 重新烧录指定模型固件。"""
     info = FIRMWARES.get(name)
@@ -558,23 +572,23 @@ def flash_firmware(state: State, name: str):
     state.connected = False
     with state.lock:
         state.source = "模型切换中，串口暂停"
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-    out = (p.stdout or "") + "\n" + (p.stderr or "")
-    if "Verified OK" not in out:
-        raise RuntimeError("烧录失败：" + out[-500:])
-    time.sleep(2.5)
-    # 烧录后板子复位，主动关掉旧串口句柄，让 serial_worker 重新打开 COM
-    with state.lock:
-        if state.ser is not None:
-            try:
-                state.ser.close()
-            except Exception:
-                pass
-            state.ser = None
-        state.connected = False
-        state.model = name
-        state.model_lock_until = time.time() + 10.0
-    return info["label"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        out = (p.stdout or "") + "\n" + (p.stderr or "")
+        if "Verified OK" not in out:
+            if "CMSIS-DAP" in out or "Error connecting" in out or "cannot read IDR" in out:
+                raise RuntimeError("烧录失败：DAP 或板子电源没连好，请检查 SWD 排线和 PWR 灯")
+            raise RuntimeError("烧录失败：" + out[-500:])
+        time.sleep(2.5)
+        _drop_serial(state)
+        with state.lock:
+            state.model = name
+            state.model_lock_until = time.time() + 10.0
+        return info["label"]
+    except Exception:
+        # 失败也要关旧串口，避免看板永远停在“模型切换中/串口未连接”
+        _drop_serial(state)
+        raise
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -728,6 +742,20 @@ def main():
     ap.add_argument("--http-port", type=int, default=8766)
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
+
+    # 单实例保护：避免重复启动两个看板抢同一个串口
+    probe = f"http://127.0.0.1:{args.http_port}/api/state"
+    try:
+        with urllib.request.urlopen(probe, timeout=0.6):
+            pass
+        print(f"[http] 端口 {args.http_port} 已有看板在运行，本次启动退出。"
+              "请先关闭旧的 server.py 窗口。", flush=True)
+        return
+    except urllib.error.HTTPError:
+        print(f"[http] 端口 {args.http_port} 已被占用，本次启动退出。", flush=True)
+        return
+    except Exception:
+        pass
 
     t = threading.Thread(target=simulate_worker, args=(STATE,), daemon=True) if args.simulate \
         else threading.Thread(target=serial_worker, args=(args.port, STATE), daemon=True)
